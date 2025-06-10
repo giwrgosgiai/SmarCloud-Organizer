@@ -1,0 +1,54 @@
+{
+    "log_level": "INFO",
+    "enable_ai": true,
+    "enable_ocr": true,
+    "similarity_threshold": 0.85,
+    "max_threads": 4,
+    "output_format": "xlsx",
+    "backup_before_changes": true,
+    "zero_change_mode": true,
+    "target_extensions": [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".jpg", ".jpeg", ".png"],
+    "problematic_folders": [
+        "argyrhs", "anna", "other company", "frankouli",
+        "shared", "tzika", "deleted", "temporary", "temp",
+        "copy", "old", "backup", "archive"
+    ],
+    "known_suppliers": ["queena", "argy", "anna", "frankouli"],
+    "required_documents": ["invoice", "ce", "packing_list"],
+    "optional_documents": ["bl", "manual", "bank_proof"],
+    "ai_models": {
+        "llama_model": "llama3.2:3b",
+        "llama_timeout": 60,
+        "classification_confidence_threshold": 0.5,
+        "consistency_check_enabled": true
+    },
+    "excel_report": {
+        "include_dropdowns": true,
+        "include_charts": true,
+        "auto_adjust_columns": true,
+        "conditional_formatting": true
+    },
+    "duplicate_detection": {
+        "content_hash_enabled": true,
+        "fuzzy_name_matching": true,
+        "fuzzy_threshold": 0.85,
+        "size_comparison": true
+    },
+    "ce_analysis": {
+        "orphan_detection": true,
+        "shared_ce_detection": true,
+        "product_matching": true,
+        "coverage_threshold": 0.8
+    },
+    "ocr_settings": {
+        "languages": ["eng", "ell"],
+        "extract_dates": true,
+        "extract_costs": true,
+        "extract_products": true
+    },
+    "folder_analysis": {
+        "detect_unknown_folders": true,
+        "check_naming_patterns": true,
+        "problematic_folder_threshold": 0.7
+    }
+}
