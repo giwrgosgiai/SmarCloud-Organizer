@@ -1,0 +1,53 @@
+{
+  "base_path": ".",
+  "output_excel": "gaming_files_analysis.xlsx",
+  "log_file": "gaming_organizer.log",
+  "processed_hashes_file": "processed_hashes.json",
+
+  "game_names": [
+    "Book of Ra", "Sizzling Hot", "Lucky Lady's Charm", "Dolphin's Pearl",
+    "Columbus", "Just Jewels", "Pharaoh's Gold", "Lord of the Ocean",
+    "Magic Mirror", "Golden Sevens", "Ultra Hot", "Multi Hot",
+    "Blackjack", "Roulette", "Poker", "Baccarat", "American Poker"
+  ],
+
+  "containers": [
+    "Gaming Machines Slot", "Gaming Machines Multi", "Table Games",
+    "Software Licenses", "Spare Parts", "Documentation"
+  ],
+
+  "suppliers": [
+    "Novomatic", "IGT", "Aristocrat", "Scientific Games", "Ainsworth",
+    "EGT", "Playtech", "Microgaming", "NetEnt", "Amatic", "CT Gaming"
+  ],
+
+  "years": ["2022", "2023", "2024", "2025"],
+
+  "excluded_extensions": [".DS_Store", ".thumbs.db", ".tmp", ".log", ".cache"],
+
+  "max_file_size_mb": 1000,
+  "min_file_size_bytes": 100,
+
+  "enable_fast_mode": true,
+  "parallel_processing": true,
+  "hash_cache_size": 20000,
+  "confidence_threshold": 0.65,
+
+  "enable_folder_context": true,
+  "enable_greek_support": true,
+  "safety_mode": true,
+  "require_user_confirmation": true,
+  "backup_before_execute": true,
+
+  "enable_ai_classification": true,
+  "enable_ocr": true,
+  "enable_semantic_matching": true,
+
+  "_comments": {
+    "description": "Gaming business optimized configuration",
+    "game_names": "Add your specific game titles here",
+    "containers": "Adjust based on your organizational structure",
+    "suppliers": "Add your gaming equipment suppliers",
+    "confidence_threshold": "Lower = more sensitive classification"
+  }
+}

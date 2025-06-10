@@ -1,0 +1,3 @@
+2025-06-10 09:29:13 - INFO - _perform_safety_verification:749 - Safety verification: 8/11 files processed
+2025-06-10 09:29:13 - INFO - _perform_safety_verification:751 - Files with status 'TRACKED': 8
+2025-06-10 09:29:14 - INFO - save_processed_hashes_enhanced:819 - Saved 0 processed hashes

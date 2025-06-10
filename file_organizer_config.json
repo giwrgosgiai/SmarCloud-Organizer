@@ -1,0 +1,49 @@
+{
+  "base_path": ".",
+  "output_excel": "super_file_organization_plan.xlsx",
+  "log_file": "super_file_organizer.log",
+  "processed_hashes_file": "processed_hashes.json",
+  "game_names": [
+    "queena",
+    "dolphin",
+    "adventure",
+    "puzzle",
+    "casino",
+    "slot",
+    "poker"
+  ],
+  "containers": [
+    "Container 1",
+    "Container 2",
+    "Container 3"
+  ],
+  "suppliers": [
+    "Supplier A",
+    "Supplier B",
+    "Supplier C"
+  ],
+  "years": [
+    "2024",
+    "2025"
+  ],
+  "excluded_extensions": [
+    ".DS_Store",
+    ".thumbs.db",
+    ".tmp",
+    ".log"
+  ],
+  "max_file_size_mb": 500,
+  "min_file_size_bytes": 1,
+  "enable_fast_mode": true,
+  "parallel_processing": true,
+  "hash_cache_size": 15000,
+  "confidence_threshold": 0.7,
+  "enable_folder_context": true,
+  "enable_greek_support": true,
+  "safety_mode": true,
+  "require_user_confirmation": true,
+  "backup_before_execute": true,
+  "enable_ai_classification": true,
+  "enable_ocr": true,
+  "enable_semantic_matching": true
+}
