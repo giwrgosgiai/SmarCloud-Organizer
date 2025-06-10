@@ -37,6 +37,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 import threading
 from difflib import SequenceMatcher
+import signal
+import queue
 
 # Auto-install AI dependencies
 def auto_install_ai_dependencies():
@@ -472,112 +474,99 @@ Respond with ONLY a decimal number between 0.0 and 1.0:"""
             self.logger.error(f"OCR error for {pdf_path}: {e}")
             return ""
     def classify_document_content(self, text_content: str) -> Tuple[str, float]:
-        """Classify document using local Llama models for maximum accuracy"""
-        if not self.ollama_available or not hasattr(self, 'llama_model'):
-            return self._fallback_classification(text_content)
-
+        """🤖 LLAMA-POWERED document classification για folder consistency checks"""
         try:
+            # Προσπαθούμε να χρησιμοποιήσουμε το Llama για ακριβή ανάλυση
+            print("🤖 Using Llama for content analysis...")
+
+            # Prepare prompt for document classification
+            prompt = f"""
+            Analyze this document content and classify it. Focus on:
+            1. Document type (Invoice, CE Certificate, Manual, etc.)
+            2. Company/customer names mentioned
+            3. Container/shipment references
+            4. Any specific identifiers
+
+            Document content:
+            {text_content[:1500]}...
+
+            Respond with just: DOCUMENT_TYPE|CONFIDENCE|KEY_IDENTIFIERS
+            Example: Invoice|0.9|Queena,Container 2,INV-2024-001
+            """
+
+            # Try to use local Llama model
             import requests
-            import json
-
-            # Limit text length for efficient processing
-            text_sample = text_content[:2000] if len(text_content) > 2000 else text_content
-
-            # Use Llama for classification
-            classification_prompt = self.classification_prompt.format(text=text_sample)
-
             response = requests.post(
-                "http://localhost:11434/api/generate",
+                'http://localhost:11434/api/generate',
                 json={
-                    "model": self.llama_model,
-                    "prompt": classification_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,  # Low temperature for consistent results
-                        "top_p": 0.9,
-                        "num_predict": 50    # Short response expected
+                    'model': 'llama3.2:3b',
+                    'prompt': prompt,
+                    'stream': False,
+                    'options': {
+                        'temperature': 0.1,
+                        'top_p': 0.9,
+                        'max_tokens': 150
                     }
                 },
-                timeout=30
+                timeout=60
             )
 
             if response.status_code == 200:
                 result = response.json()
-                classification = result.get('response', '').strip()
+                llama_response = result.get('response', '').strip()
 
-                # Clean up the response
-                classification = classification.replace('CATEGORY:', '').strip()
-                classification = classification.split('\n')[0].strip()
+                # Parse Llama response
+                if '|' in llama_response:
+                    parts = llama_response.split('|')
+                    if len(parts) >= 2:
+                        doc_type = parts[0].strip()
+                        confidence = float(parts[1].strip()) if parts[1].replace('.','').isdigit() else 0.7
+                        key_identifiers = parts[2].strip() if len(parts) > 2 else ""
 
-                # Validate classification
-                valid_categories = [
-                    'Invoice', 'CE', 'Manual', 'Packing List', 'Bank Proof',
-                    'Shipping Documents', 'Price Lists', 'Contracts',
-                    'Travel Documents', 'Unclassified'
-                ]
+                        print(f"✅ Llama classification: {doc_type} (confidence: {confidence:.2f})")
+                        if key_identifiers:
+                            print(f"🔍 Key identifiers found: {key_identifiers}")
 
-                # Find best match
-                for category in valid_categories:
-                    if category.lower() in classification.lower():
-                        classification = category
-                        break
-                else:
-                    classification = 'Unclassified'
+                        return doc_type, confidence
 
-                # Get confidence score
-                confidence = self._get_llama_confidence(classification, text_sample)
-
-                self.logger.info(f"🚀 Llama classified as: {classification} (confidence: {confidence:.2f})")
-                return classification, confidence
-
-            else:
-                self.logger.warning(f"❌ Llama API error: {response.status_code}")
-                return self._fallback_classification(text_content)
+            print("⚠️ Llama classification failed, using fallback...")
+            return self._fallback_classification(text_content)
 
         except Exception as e:
-            self.logger.error(f"❌ Llama classification failed: {e}")
+            print(f"❌ Llama error: {e}")
+            print("🔄 Using fallback classification...")
             return self._fallback_classification(text_content)
 
     def _get_llama_confidence(self, doc_type: str, text_sample: str) -> float:
-        """Get confidence score from Llama"""
-        try:
-            import requests
+        """🔧 STABLE confidence calculation - NO LLAMA για αποφυγή errors"""
+        # Άμεση χρήση pattern-based confidence χωρίς Llama calls
+        text_lower = text_sample.lower()
+        confidence_factors = 0.0
 
-            confidence_prompt = self.confidence_prompt.format(
-                doc_type=doc_type,
-                text=text_sample[:500]  # Shorter sample for confidence
-            )
+        # Basic confidence indicators
+        if doc_type.lower() == 'invoice' and any(word in text_lower for word in ['invoice', 'bill', 'amount', 'total', 'τιμολογ']):
+            confidence_factors += 0.3
+        elif doc_type.lower() == 'ce' and any(word in text_lower for word in ['certificate', 'conform', 'test', 'πιστοποιητικ']):
+            confidence_factors += 0.3
+        elif doc_type.lower() == 'manual' and any(word in text_lower for word in ['manual', 'instruction', 'guide', 'εγχειριδι']):
+            confidence_factors += 0.3
 
-            response = requests.post(
-                "http://localhost:11434/api/generate",
-                json={
-                    "model": self.llama_model,
-                    "prompt": confidence_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                        "num_predict": 10
-                    }
-                },
-                timeout=15
-            )
+        # Fallback confidence based on classification type
+        confidence_map = {
+            'Invoice': 0.7,
+            'CE': 0.6,
+            'Manual': 0.6,
+            'Packing List': 0.5,
+            'Bank Proof': 0.5,
+            'Shipping Documents': 0.5,
+            'Price Lists': 0.6,
+            'Contracts': 0.5,
+            'Travel Documents': 0.5,
+            'Unclassified': 0.2
+        }
 
-            if response.status_code == 200:
-                result = response.json()
-                confidence_str = result.get('response', '0.5').strip()
-
-                # Extract number
-                import re
-                numbers = re.findall(r'0\.\d+|1\.0|0|1', confidence_str)
-                if numbers:
-                    confidence = float(numbers[0])
-                    return max(0.0, min(1.0, confidence))  # Clamp between 0 and 1
-
-            return 0.7  # Default confidence if can't get score
-
-        except Exception as e:
-            self.logger.warning(f"❌ Confidence scoring failed: {e}")
-            return 0.7  # Default confidence
+        base_confidence = confidence_map.get(doc_type, 0.5)
+        return max(0.4, min(0.9, base_confidence + confidence_factors))
 
     def _fallback_classification(self, text_content: str) -> Tuple[str, float]:
         """Fallback keyword-based classification if Llama fails"""
@@ -678,7 +667,7 @@ Respond with ONLY a decimal number between 0.0 and 1.0:"""
         clean = re.sub(r'_?(ce|manual|instruction)$', '', clean)
         clean = re.sub(r'[_\-]+', ' ', clean)
         return clean.strip()
-    def enhanced_file_analysis(self, file_path: Path) -> Dict:
+    def enhanced_file_analysis(self, file_path: Path, folder_path: str = "") -> Dict:
         results = {
             'ai_enhanced': True,
             'document_type': None,
@@ -687,7 +676,10 @@ Respond with ONLY a decimal number between 0.0 and 1.0:"""
             'content_confidence': 0.0,
             'extracted_text_length': 0,
             'has_content_analysis': False,
-            'ai_method': 'llama_enhanced'
+            'ai_method': 'llama_enhanced',
+            'folder_consistency': None,
+            'consistency_issues': [],
+            'consistency_suggestions': []
         }
 
         try:
@@ -705,6 +697,22 @@ Respond with ONLY a decimal number between 0.0 and 1.0:"""
                     results['has_content_analysis'] = True
                     results['content_sample'] = text_content[:300] + "..." if len(text_content) > 300 else text_content
 
+                    # 🔍 ΝΈΟΣ ΈΛΕΓΧΟΣ ΣΥΝΈΠΕΙΑΣ ΦΑΚΈΛΟΥ
+                    if folder_path:
+                        consistency_check = self.check_folder_consistency(file_path, folder_path, text_content)
+                        results['folder_consistency'] = consistency_check
+                        results['consistency_issues'] = consistency_check.get('issues_found', [])
+                        results['consistency_suggestions'] = consistency_check.get('suggestions', [])
+
+                        # Update quality based on consistency
+                        if not consistency_check.get('is_consistent', True):
+                            results['quality'] = 'needs_review'
+                            print(f"🔍 FOLDER CONSISTENCY CHECK: {file_path.name}")
+                            for issue in results['consistency_issues']:
+                                print(f"   ⚠️ Issue: {issue}")
+                            for suggestion in results['consistency_suggestions']:
+                                print(f"   💡 Suggestion: {suggestion}")
+
                     # Quality assessment
                     if confidence > 0.8:
                         results['quality'] = 'high_confidence'
@@ -719,16 +727,162 @@ Respond with ONLY a decimal number between 0.0 and 1.0:"""
 
         return results
 
+    def check_folder_consistency(self, file_path: Path, folder_path: str, text_content: str = None) -> Dict:
+        """🔍 ΈΛΕΓΧΟΣ ΣΥΝΈΠΕΙΑΣ - Ελέγχει αν το αρχείο είναι στον σωστό φάκελο"""
+        consistency_check = {
+            'is_consistent': True,
+            'confidence': 1.0,
+            'issues_found': [],
+            'suggestions': [],
+            'key_identifiers': [],
+            'folder_matches': []
+        }
+
+        try:
+            # Extract text if not provided
+            if not text_content and file_path.suffix.lower() == '.pdf':
+                text_content = self.extract_text_from_pdf(file_path)
+
+            if not text_content or len(text_content.strip()) < 50:
+                consistency_check['issues_found'].append("Insufficient content for analysis")
+                return consistency_check
+
+            print(f"🔍 Checking folder consistency for: {file_path.name}")
+            print(f"📁 Current folder: {folder_path}")
+
+            # Llama-powered consistency check
+            prompt = f"""
+            Check if this document belongs in the current folder. Analyze:
+
+            DOCUMENT CONTENT:
+            {text_content[:1000]}...
+
+            CURRENT FOLDER PATH: {folder_path}
+
+            Look for:
+            1. Company names (Queena, etc.)
+            2. Container references (Container 1, Container 2, etc.)
+            3. Invoice numbers, dates
+            4. Any mismatches between content and folder
+
+            Respond with:
+            CONSISTENT|CONFIDENCE|ISSUES|SUGGESTIONS
+
+            Example:
+            - If consistent: CONSISTENT|0.9|None|None
+            - If inconsistent: INCONSISTENT|0.8|Invoice mentions Container 3 but in Container 2 folder|Move to Container 3 folder
+            """
+
+            import requests
+            response = requests.post(
+                'http://localhost:11434/api/generate',
+                json={
+                    'model': 'llama3.2:3b',
+                    'prompt': prompt,
+                    'stream': False,
+                    'options': {
+                        'temperature': 0.2,
+                        'top_p': 0.8,
+                        'max_tokens': 200
+                    }
+                },
+                timeout=60
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                llama_response = result.get('response', '').strip()
+
+                if '|' in llama_response:
+                    parts = llama_response.split('|')
+                    if len(parts) >= 2:
+                        is_consistent = parts[0].strip().upper() == 'CONSISTENT'
+                        confidence = float(parts[1].strip()) if parts[1].replace('.','').isdigit() else 0.7
+                        issues = parts[2].strip() if len(parts) > 2 and parts[2].strip().lower() != 'none' else ""
+                        suggestions = parts[3].strip() if len(parts) > 3 and parts[3].strip().lower() != 'none' else ""
+
+                        consistency_check['is_consistent'] = is_consistent
+                        consistency_check['confidence'] = confidence
+
+                        if issues:
+                            consistency_check['issues_found'].append(issues)
+                        if suggestions:
+                            consistency_check['suggestions'].append(suggestions)
+
+                        if not is_consistent:
+                            print(f"⚠️ CONSISTENCY ISSUE: {issues}")
+                            print(f"💡 SUGGESTION: {suggestions}")
+                        else:
+                            print(f"✅ Folder consistency OK (confidence: {confidence:.2f})")
+
+                        return consistency_check
+
+            # Fallback pattern-based consistency check
+            return self._fallback_consistency_check(text_content, folder_path)
+
+        except Exception as e:
+            print(f"❌ Consistency check error: {e}")
+            consistency_check['issues_found'].append(f"Analysis error: {str(e)}")
+            return consistency_check
+
+    def _fallback_consistency_check(self, text_content: str, folder_path: str) -> Dict:
+        """Fallback consistency check using pattern matching"""
+        consistency_check = {
+            'is_consistent': True,
+            'confidence': 0.6,
+            'issues_found': [],
+            'suggestions': [],
+            'key_identifiers': [],
+            'folder_matches': []
+        }
+
+        text_lower = text_content.lower()
+        folder_lower = folder_path.lower()
+
+        # Check for container mismatches
+        import re
+        container_in_content = re.findall(r'container\s*(\d+)', text_lower)
+        container_in_path = re.findall(r'container\s*(\d+)', folder_lower)
+
+        if container_in_content and container_in_path:
+            content_containers = set(container_in_content)
+            path_containers = set(container_in_path)
+
+            if not content_containers.intersection(path_containers):
+                consistency_check['is_consistent'] = False
+                consistency_check['issues_found'].append(
+                    f"Container mismatch: Content mentions Container {','.join(content_containers)} but in Container {','.join(path_containers)} folder"
+                )
+                consistency_check['suggestions'].append(
+                    f"Consider moving to Container {','.join(content_containers)} folder"
+                )
+
+        # Check for company name mismatches (simple patterns)
+        companies = ['queena', 'toubanhas', 'smart', 'cloud']
+        for company in companies:
+            if company in text_lower and company not in folder_lower:
+                # This might indicate a mismatch, but we're less confident
+                consistency_check['confidence'] = min(consistency_check['confidence'], 0.4)
+
+        return consistency_check
+
 def integrate_ai_with_existing_classifier(original_classifier, ai_classifier):
     def enhanced_classify_file(filename: str, folder_path: str = "", file_path: Path = None) -> Tuple[str, bool, float, Dict]:
         doc_type, is_temp, confidence = original_classifier.classify_file(filename, folder_path)
         ai_results = {}
         if file_path and file_path.exists():
-            ai_results = ai_classifier.enhanced_file_analysis(file_path)
+            # 🔍 Pass folder_path for consistency checking
+            ai_results = ai_classifier.enhanced_file_analysis(file_path, folder_path)
             if (ai_results.get('has_content_analysis') and ai_results.get('content_confidence', 0) > confidence):
                 doc_type = ai_results['content_classification']
                 confidence = ai_results['content_confidence']
                 ai_results['ai_override'] = True
+
+            # 🚨 Flag files with consistency issues for review
+            if ai_results.get('consistency_issues'):
+                ai_results['requires_review'] = True
+                print(f"🚨 FLAGGED FOR REVIEW: {filename} - Consistency issues detected")
+
         return doc_type, is_temp, confidence, ai_results
     return enhanced_classify_file
 
@@ -740,12 +894,15 @@ class ZeroLossFileOrganizer:
         """Initialize the enhanced file organizer with premium features"""
         print("🔧 DEBUG: Initializing ZeroLossFileOrganizer...")
 
+        # Store GUI callback for progress updates
+        self.gui_callback = None
+        self.gui_mode = gui_mode
+
         # Configuration file for persistent settings (set this FIRST)
         self.config_file = config_path or "file_organizer_config.json"
 
         # Load enhanced configuration (now config_file is available)
         self.config = self._load_enhanced_config()
-        self.gui_mode = gui_mode
 
         # Enhanced cache directory
         self.cache_dir = "file_organizer_cache"
@@ -753,19 +910,19 @@ class ZeroLossFileOrganizer:
 
         # Performance and safety tracking
         self.stats = {
-            'total_files': 0,
-            'processed_files': 0,
+            'files_processed': 0,
+            'cache_hits': 0,
+            'processing_time': 0,
             'ai_enhancements': 0,
             'ai_overrides': 0,
-            'cache_hits': 0,
             'files_requiring_review': 0,
             'confidence_scores': [],
-            'processing_speeds': [],
-            'performance_metrics': {},  # Add missing performance_metrics
+            'duplicates_found': 0,
+            'manual_decisions_needed': 0,
+            'performance_metrics': {},
             'incremental_savings': {
                 'files_skipped': 0,
-                'time_saved_seconds': 0,
-                'cache_efficiency': 0
+                'time_saved_seconds': 0
             }
         }
 
@@ -798,19 +955,22 @@ class ZeroLossFileOrganizer:
         except ImportError:
             print("⚠️ OCR dependencies not available")
 
-        # Initialize AI classifier if enabled
+        # Initialize AI classifier - ALWAYS ENABLED for better classification!
         print("🔧 DEBUG: Initializing AI classifier...")
-        if self.config.get('enable_ai_enhancement', True):
+        if self.config.get('enable_ai_enhancement', True):  # 🤖 AI ΠΑΝΤΑ ΕΝΕΡΓΟ!
             try:
                 self.ai_classifier = AIEnhancedFileClassifier()
                 self.ai_available = True
-                print("✅ AI classifier initialized successfully")
+                print("✅ AI classifier initialized successfully - SMART FOLDER MATCHING ENABLED!")
             except Exception as e:
                 print(f"⚠️ AI classifier failed to initialize: {e}")
+                print("🔄 Attempting to continue with pattern-only classification...")
                 self.ai_classifier = None
                 self.ai_available = False
         else:
+            print("🔧 DEBUG: AI classifier disabled by configuration (not recommended)")
             self.ai_classifier = None
+            self.ai_available = False
 
         print("🔧 DEBUG: Initializing pattern classifier...")
         # Initialize pattern classifier with enhanced caches
@@ -860,14 +1020,27 @@ class ZeroLossFileOrganizer:
         # Run automatic analysis only if not in GUI mode
         if not gui_mode:
             print("🔧 DEBUG: Running automatic analysis (command line mode)...")
-            self.run_enhanced_analysis(
-                "/Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας",
-                "file_analysis_premium.xlsx"
-            )
+            # Only run if explicitly called from command line with folder argument
+            pass  # Remove automatic analysis even for command line
         else:
             print("🔧 DEBUG: GUI mode - skipping automatic analysis")
 
         print("✅ DEBUG: ZeroLossFileOrganizer initialization complete!")
+
+    def set_gui_callback(self, callback_func):
+        """Set a callback function for GUI progress updates"""
+        self.gui_callback = callback_func
+
+    def set_verbose_mode(self, verbose: bool):
+        """Enable/disable verbose logging"""
+        self.verbose = verbose
+        if verbose:
+            print("🔧 DEBUG: Verbose mode enabled")
+
+    def _update_gui_progress(self, progress_percent: float, status_text: str, log_message: str = None):
+        """Send progress updates to GUI if available"""
+        if self.gui_callback:
+            self.gui_callback(progress_percent, status_text, log_message)
 
     def create_beautiful_header(self):
         """Create beautiful header with rich formatting"""
@@ -968,14 +1141,15 @@ class ZeroLossFileOrganizer:
                 "Topps", "Leaf", "Score", "Fleer", "Donruss"
             ],
             "years": list(range(1990, 2025)),
-            "enable_ai_enhancement": True,
+            "enable_ai_enhancement": True,  # 🤖 AI ENABLED for smart classification!
             "enable_parallel_processing": True,
-            "max_workers": 16,
-            "enable_ocr": True,
-            "enable_semantic_matching": True,
+            "max_workers": 4,  # Reduced for memory efficiency
+            "enable_ocr": False,  # Disabled for stability
+            "enable_semantic_matching": False,  # Disabled for stability
             "confidence_threshold": 0.7,
             "cache_enabled": True,
-            "safety_mode": True
+            "safety_mode": True,
+            "skip_icloud_timeouts": True  # Skip problematic iCloud files
         }
 
         if config_path and os.path.exists(config_path):
@@ -1127,15 +1301,19 @@ class ZeroLossFileOrganizer:
                 json.dump(default_config, f, indent=2, ensure_ascii=False)
         return default_config
 
-    def _load_processed_hashes(self) -> set:
+    def _load_processed_hashes(self) -> dict:
         hash_file = self.config.get("processed_hashes_file", "processed_hashes.json")
         try:
             if os.path.exists(hash_file):
                 with open(hash_file, 'r') as f:
-                    return set(json.load(f))
+                    data = json.load(f)
+                    # Handle both old format (list) and new format (dict)
+                    if isinstance(data, list):
+                        return {item: {} for item in data}  # Convert old set format
+                    return data
         except Exception as e:
             logging.warning(f"Could not load processed hashes: {e}")
-        return set()
+        return {}
 
     def setup_enhanced_logging(self):
         log_file = self.config.get("log_file", "super_file_organizer.log")
@@ -1156,6 +1334,20 @@ class ZeroLossFileOrganizer:
 
     def calculate_file_hash_enhanced(self, file_path: Path) -> str:
         try:
+            # Check if file is in iCloud and handle timeouts
+            if "iCloud" in str(file_path) or "Mobile Documents" in str(file_path):
+                # For iCloud files, use a faster hash method or skip if timeout
+                try:
+                    stat = file_path.stat()
+                    # Quick hash based on file stats for iCloud files
+                    quick_hash = f"ICLOUD_{stat.st_size}_{int(stat.st_mtime)}_{hash(str(file_path))}"
+                    return quick_hash[:32]  # Truncate to reasonable length
+                except OSError as e:
+                    if "timed out" in str(e):
+                        print(f"⚠️ iCloud file timeout, using quick hash: {file_path.name}")
+                        return f"TIMEOUT_HASH_{int(time.time())}_{hash(str(file_path))}"[:32]
+                    raise
+
             stat = file_path.stat()
             cache_key = (str(file_path), stat.st_size, stat.st_mtime)
             with self.hash_cache_lock:
@@ -1187,6 +1379,13 @@ class ZeroLossFileOrganizer:
                     del self.hash_cache[oldest_key]
                     self.hash_cache[cache_key] = file_hash
             return file_hash
+        except OSError as e:
+            if "timed out" in str(e) or "Operation timed out" in str(e):
+                print(f"⚠️ File access timeout: {file_path.name}")
+                return f"TIMEOUT_HASH_{int(time.time())}_{hash(str(file_path))}"[:32]
+            else:
+                self.logger.error(f"OS Error calculating hash for {file_path}: {e}")
+                return f"ERROR_HASH_{int(time.time())}_{hash(str(file_path))}"
         except Exception as e:
             self.logger.error(f"Error calculating hash for {file_path}: {e}")
             return f"ERROR_HASH_{int(time.time())}_{hash(str(file_path))}"
@@ -1301,49 +1500,82 @@ class ZeroLossFileOrganizer:
         return None
 
     def _determine_enhanced_action(self, is_temp: bool, doc_type: str, confidence: float, file_hash: str) -> str:
+        """🇬🇷 ΤΟΠΙΚΗ ΟΡΓΑΝΩΣΗ - καμία μεταφορά, μόνο δημιουργία υποφακέλων!"""
         if file_hash.startswith('ERROR_HASH'):
             return 'REVIEW_NEEDED'
         if is_temp:
-            return 'DELETE_TEMP'
+            return 'REVIEW_DELETE_TEMP'  # Δεν διαγράφουμε αυτόματα, ρωτάμε τον χρήστη
         if doc_type == 'REVIEW_NEEDED':
             return 'REVIEW_CLASSIFY'
         if doc_type == 'Unclassified':
             return 'REVIEW_CLASSIFY'
-        if confidence < 0.1:  # Use the new lower threshold
+        if confidence < 0.1:
             return 'REVIEW_CLASSIFY'
 
-        # Specific actions based on document type and confidence
-        if confidence >= 0.8:  # High confidence
+        # ΟΛΑ τα αρχεία μένουν στον ίδιο φάκελο - απλά οργανώνουμε με υποφακέλους
+        if confidence >= 0.8:  # Υψηλή εμπιστοσύνη
             if doc_type in ['CE', 'Manual']:
-                return 'MOVE_AND_COPY'  # Move to doc type folder AND copy to Invoice
-            elif doc_type in ['Invoice', 'Packing List', 'Bank Proof']:
-                return 'MOVE_ORGANIZE'
-            elif doc_type in ['Email', 'Order', 'Price Lists']:
-                return 'COPY_ORGANIZE'  # Copy instead of move for reference
+                return 'ORGANIZE_AND_COPY'  # Οργάνωση + αντιγραφή στα Τιμολόγια
             else:
-                return 'ORGANIZE'
-        elif confidence >= 0.5:  # Medium confidence
-            return 'REVIEW_AND_ORGANIZE'
-        else:  # Low but acceptable confidence
-            return 'ORGANIZE_WITH_REVIEW'
+                return 'ORGANIZE_LOCAL'  # Τοπική οργάνωση με υποφακέλους
+        elif confidence >= 0.5:  # Μεσαία εμπιστοσύνη
+            return 'ORGANIZE_WITH_REVIEW'  # Οργάνωση αλλά με επιβεβαίωση
+        else:  # Χαμηλή εμπιστοσύνη
+            return 'REVIEW_THEN_ORGANIZE'  # Πρώτα επιβεβαίωση, μετά οργάνωση
 
     def _generate_enhanced_notes(self, doc_type: str, confidence: float, is_temp: bool, ai_results: Dict) -> str:
+        """🤖 AI-Enhanced σημειώσεις για καλύτερη κατανόηση των αποτελεσμάτων"""
         notes = []
-        if doc_type == 'REVIEW_NEEDED':
-            notes.append("Low classification confidence - requires manual review")
-        elif confidence < 0.8:
-            notes.append(f"Medium confidence ({confidence:.1%}) - verify classification")
-        if is_temp:
-            notes.append("Detected as temporary file")
-        if doc_type == 'Unclassified':
-            notes.append("Could not classify - check file type and naming")
+
+        # 🤖 AI Classification insights
         if ai_results.get('ai_override'):
-            notes.append("AI overrode pattern-based classification")
+            notes.append("🤖 AI παρακάμπτει την ταξινόμηση βάσει μοτίβων - υψηλή ακρίβεια")
         if ai_results.get('has_content_analysis'):
-            notes.append("Enhanced with AI content analysis")
+            notes.append("🧠 Βελτιωμένο με AI ανάλυση περιεχομένου")
         if ai_results.get('ai_error'):
-            notes.append(f"AI error: {ai_results['ai_error']}")
-        return "; ".join(notes) if notes else "Auto-classified"
+            notes.append(f"⚠️ AI σφάλμα: {ai_results['ai_error']}")
+
+        # Confidence-based notes με AI insights
+        if doc_type == 'REVIEW_NEEDED':
+            notes.append("🔍 Χαμηλή εμπιστοσύνη ταξινόμησης - απαιτείται χειροκίνητη επιθεώρηση")
+        elif confidence > 0.9:
+            notes.append(f"🎯 Εξαιρετική εμπιστοσύνη AI ({confidence:.1%}) - έτοιμο για αυτόματη οργάνωση")
+        elif confidence > 0.7:
+            notes.append(f"✅ Καλή εμπιστοσύνη AI ({confidence:.1%}) - προτείνεται επιβεβαίωση")
+        elif confidence > 0.5:
+            notes.append(f"⚠️ Μεσαία εμπιστοσύνη AI ({confidence:.1%}) - επαλήθευση ταξινόμησης")
+        else:
+            notes.append(f"❌ Χαμηλή εμπιστοσύνη AI ({confidence:.1%}) - χειροκίνητη ταξινόμηση")
+
+        # Special file type notes
+        if is_temp:
+            notes.append("🗑️ Εντοπίστηκε ως προσωρινό αρχείο")
+        if doc_type == 'Unclassified':
+            notes.append("❓ Δεν ήταν δυνατή η ταξινόμηση - ελέγξτε τον τύπο αρχείου και την ονομασία")
+
+        # 🔍 FOLDER CONSISTENCY CHECKS - Νέα λειτουργία!
+        consistency_issues = ai_results.get('consistency_issues', [])
+        consistency_suggestions = ai_results.get('consistency_suggestions', [])
+
+        if consistency_issues:
+            notes.append("⚠️ CONSISTENCY ISSUES DETECTED:")
+            for issue in consistency_issues:
+                notes.append(f"   🔍 {issue}")
+
+        if consistency_suggestions:
+            notes.append("💡 SUGGESTED ACTIONS:")
+            for suggestion in consistency_suggestions:
+                notes.append(f"   ➤ {suggestion}")
+
+        folder_consistency = ai_results.get('folder_consistency', {})
+        if folder_consistency and not folder_consistency.get('is_consistent', True):
+            notes.append(f"🚨 FOLDER MISMATCH DETECTED (confidence: {folder_consistency.get('confidence', 0):.1%})")
+
+        # AI-specific enhancements
+        if confidence > 0.8 and ai_results.get('has_content_analysis'):
+            notes.append("🚀 AI προτείνει αυτόματη οργάνωση βάσει περιεχομένου")
+
+        return "; ".join(notes) if notes else "🤖 Auto-classified με AI"
 
     def scan_files_enhanced(self, base_path: str) -> List[Dict]:
         print(f"{Colors.HEADER}🚀 Starting SUPERCHARGED AI-ENHANCED ZERO-LOSS file scan...{Colors.ENDC}")
@@ -1434,128 +1666,133 @@ class ZeroLossFileOrganizer:
                         file_info['Notes'] += "; Duplicate file detected"
 
         for file_info in tqdm(files, desc="📁 Generating suggested paths"):
-            if file_info['Recommended_Action'] == 'ORGANIZE':
+            # 🇬🇷 ΤΟΠΙΚΗ ΟΡΓΑΝΩΣΗ: Για όλα τα αρχεία που μπορούν να οργανωθούν
+            if file_info['Recommended_Action'] in ['ORGANIZE_LOCAL', 'ORGANIZE_AND_COPY', 'ORGANIZE_WITH_REVIEW']:
                 suggested_path = self._generate_suggested_path_enhanced(file_info)
                 file_info['Suggested_New_Path'] = suggested_path
         return files
 
     def _generate_suggested_path_enhanced(self, file_info: Dict) -> str:
-        # Extract current path to understand the structure
+        """
+        🇬🇷 ΤΟΠΙΚΗ ΟΡΓΑΝΩΣΗ ΜΟΝΟ!
+        ΔΕΝ μετακινούμε ΠΟΤΕ αρχεία από τον φάκελό τους!
+        Μόνο δημιουργούμε υποφακέλους για οργάνωση μέσα στον ίδιο φάκελο.
+        """
         current_path = file_info.get('Full_Path', file_info.get('Current_Path', ''))
-        base_folder = "/Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας"
-
-        # Generate relative path
-        if current_path.startswith(base_folder):
-            relative_path = current_path[len(base_folder):].lstrip('/')
-        else:
-            relative_path = current_path
-
-        # Parse the current directory structure to understand where this file belongs
-        path_parts = relative_path.split('/')
         filename = file_info.get('File_Name', 'unknown_file')
         doc_type = file_info.get('Document_Type', 'Unclassified')
 
-        # Step 1: Identify current structure components
-        supplier = None
-        year = None
-        container = None
+        # Βρίσκουμε τον ΓΟΝΙΚΟ φάκελο - εκεί θα μείνει το αρχείο!
+        current_dir = os.path.dirname(current_path)
 
-        # Extract supplier from path (CRITICAL: keep files within their supplier folder)
-        supplier_patterns = {
-            '2. Ken': ['Ken'],
-            '2. Queena': ['Queena'],
-            '4b. Wik': ['Wik'],
-            '7. Dipalma': ['Dipalma'],
-            '2.0 LIVOTI': ['LIVOTI'],
-            '99. Travel AdamsGames': ['Travel'],
-            '2.1 Tagada ride': ['Tagada'],
-            '3. TecWay': ['TecWay'],
-            '4. Movie power': ['Movie power'],
-            '1b.NIZAMIS': ['NIZAMIS']
-        }
-
-        for folder_name, keywords in supplier_patterns.items():
-            if any(keyword in part for part in path_parts for keyword in keywords):
-                supplier = folder_name
-                break
-
-        # If no supplier found, don't reorganize - keep as is
-        if not supplier:
-            return relative_path
-
-        # Extract year/project information
-        year_patterns = [
-            '2024-25', '2024', '2023', '2022', '2021', '2020', '2019',
-            'Order 2024', 'Order 2023', 'Order 2020', 'Order 2019',
-            'China travel', '2023 CHINA TRAVEL'
-        ]
-
-        for part in path_parts:
-            for year_pattern in year_patterns:
-                if year_pattern in part:
-                    year = part
-                    break
-            if year:
-                break
-
-        # Extract container information
-        container_patterns = [
-            'Container 1', 'Container 2', 'Container 3', 'Container 4',
-            'Κοντέινερ', '2 Κοντέινερ'
-        ]
-
-        for part in path_parts:
-            for container_pattern in container_patterns:
-                if container_pattern in part:
-                    container = part
-                    break
-            if container:
-                break
-
-        # If structure is unclear, keep minimal organization within supplier
-        if not year:
-            return f"{supplier}/Unorganized/{filename}"
-
-        # Step 2: Build the organized path within the existing structure
-        suggested_parts = [supplier]
-
-        # Add year/project folder
-        suggested_parts.append(year)
-
-        # Add container folder if exists
-        if container:
-            suggested_parts.append(container)
-
-        # Step 3: Add document type organization within the container
-        if doc_type and doc_type != 'Unclassified':
-            # Create document type subfolder within container
-            suggested_parts.append(doc_type)
-
-            # SPECIAL LOGIC: CE and Manual files should also be copied to Invoice folder
-            if doc_type in ['CE', 'Manual'] and container:
-                # Generate invoice folder path in same container
-                invoice_parts = [supplier, year, container, 'Invoice']
-                invoice_path = '/'.join(invoice_parts)
-
-                # Add additional copy information to file_info
-                file_info['Additional_Copy_Location'] = f"{invoice_path}/{filename}"
-                file_info['Copy_Reason'] = f"{doc_type} files should also be accessible in Invoice folder"
-                file_info['Recommended_Action'] = 'COPY_TO_BOTH'
-
-                # Add to notes
-                current_notes = file_info.get('Notes', '')
-                additional_note = f"Also copy to {invoice_path}/{filename}"
-                file_info['Notes'] = f"{current_notes}; {additional_note}" if current_notes else additional_note
+        # Χρησιμοποιούμε relative path για την πρόταση
+        base_folder = "/Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας"
+        if current_dir.startswith(base_folder):
+            relative_dir = current_dir[len(base_folder):].lstrip('/')
         else:
-            # No classification - keep in container root but in "Unorganized" subfolder
-            if container:
-                suggested_parts.append('Unorganized')
-            else:
-                suggested_parts.append('Unorganized')
+            relative_dir = current_dir
 
-        # Build final organized path
-        suggested_dir = '/'.join(suggested_parts)
-        return f"{suggested_dir}/{filename}"
+        # Αν είμαστε στο root του base folder, δημιουργούμε υποφάκελο
+        if not relative_dir or relative_dir == '.':
+            relative_dir = 'Unorganized'
+
+        # 🤖 AI-ENHANCED ΤΟΠΙΚΗ ΟΡΓΑΝΩΣΗ: Χρήση AI για έξυπνη αντιστοίχιση φακέλων!
+        if doc_type and doc_type != 'Unclassified':
+            # 🧠 AI-Enhanced Μάπα τύπων εγγράφων (βελτιωμένη με AI insights)
+            document_folder_map = {
+                # 📄 Όλα τα τιμολόγια και σχετικά έγγραφα μαζί
+                'Invoice': '📄 Τιμολόγια',
+                'Proforma': '📄 Τιμολόγια',
+                'Proforma Invoice': '📄 Τιμολόγια',
+                'Commercial Invoice': '📄 Τιμολόγια',
+                'Packing List': '📄 Τιμολόγια',
+                'Package List': '📄 Τιμολόγια',
+                'BL': '📄 Τιμολόγια',
+                'HBL': '📄 Τιμολόγια',
+                'PI': '📄 Τιμολόγια',
+                'Bill of Lading': '📄 Τιμολόγια',
+
+                # 🚢 Αρχεία μεταφοράς και logistics
+                'Shipping Documents': '🚢 Αρχεία Μεταφοράς',
+                'AWB': '🚢 Αρχεία Μεταφοράς',
+                'Air Waybill': '🚢 Αρχεία Μεταφοράς',
+                'Transportation': '🚢 Αρχεία Μεταφοράς',
+                'Delivery': '🚢 Αρχεία Μεταφοράς',
+                'Shipment': '🚢 Αρχεία Μεταφοράς',
+
+                # 🏛️ Τελωνειακά έγγραφα
+                'Customs': '🏛️ Τελωνείο',
+                'Clearance': '🏛️ Τελωνείο',
+                'Declaration': '🏛️ Τελωνείο',
+                'Customs Declaration': '🏛️ Τελωνείο',
+
+                # ✅ Πιστοποιητικά και συμμόρφωση
+                'CE': '✅ CE & Πιστοποιητικά',
+                'Certificate': '✅ CE & Πιστοποιητικά',
+                'Compliance': '✅ CE & Πιστοποιητικά',
+                'CE Certificate': '✅ CE & Πιστοποιητικά',
+                'Quality Certificate': '✅ CE & Πιστοποιητικά',
+
+                # 📚 Εγχειρίδια και τεκμηρίωση
+                'Manual': '📚 Εγχειρίδια & Οδηγίες',
+                'Instructions': '📚 Εγχειρίδια & Οδηγίες',
+                'Guide': '📚 Εγχειρίδια & Οδηγίες',
+                'Documentation': '📚 Εγχειρίδια & Οδηγίες',
+                'User Manual': '📚 Εγχειρίδια & Οδηγίες',
+
+                # 🏦 Χρηματοοικονομικά έγγραφα
+                'Bank Proof': '🏦 Τραπεζικά',
+                'Payment': '🏦 Τραπεζικά',
+                'Transfer': '🏦 Τραπεζικά',
+                'Receipt': '🏦 Τραπεζικά',
+                'Bank Statement': '🏦 Τραπεζικά',
+
+                # 💰 Τιμοκατάλογοι και προσφορές
+                'Price Lists': '💰 Τιμοκατάλογοι',
+                'Catalog': '💰 Τιμοκατάλογοι',
+                'Quotation': '💰 Τιμοκατάλογοι',
+                'Price List': '💰 Τιμοκατάλογοι'
+            }
+
+            # 🤖 AI-Enhanced folder selection with confidence scoring
+            subfolder = document_folder_map.get(doc_type, '❓ Άλλα Έγγραφα')
+
+            # 🧠 Additional AI logic for edge cases
+            confidence = file_info.get('Classification_Confidence', 0)
+            if confidence > 0.9:
+                # Υψηλή εμπιστοσύνη - χρήση AI classification
+                file_info['AI_Classification_Used'] = True
+                file_info['AI_Confidence_Level'] = 'HIGH'
+            elif confidence > 0.7:
+                file_info['AI_Classification_Used'] = True
+                file_info['AI_Confidence_Level'] = 'MEDIUM'
+                subfolder = f"{subfolder} (επιβεβαίωση)"  # Πρόσθεσε ένδειξη για επιβεβαίωση
+
+            suggested_path = f"{relative_dir}/{subfolder}/{filename}"
+
+            # 🔥 ΕΙΔΙΚΗ AI ΛΟΓΙΚΗ: CE και Manual πρέπει να είναι και στα Τιμολόγια!
+            if doc_type in ['CE', 'Manual', 'Certificate', 'CE Certificate']:
+                file_info['Additional_Copy_Location'] = f"{relative_dir}/📄 Τιμολόγια/{filename}"
+                file_info['Copy_Reason'] = f"Τα {doc_type} αρχεία πρέπει να είναι διαθέσιμα και στα Τιμολόγια (AI προτεινόμενο)"
+                file_info['Recommended_Action'] = 'ORGANIZE_AND_COPY'
+
+                current_notes = file_info.get('Notes', '')
+                additional_note = f"🤖 AI ΠΡΟΤΕΙΕΙ ΑΝΤΙΓΡΑΦΗ ΣΤΑ: {relative_dir}/📄 Τιμολόγια/{filename}"
+                file_info['Notes'] = f"{current_notes}; {additional_note}" if current_notes else additional_note
+
+        else:
+            # 🤖 AI δεν μπόρεσε να ταξινομήσει - χρειάζεται ανθρώπινη επέμβαση
+            suggested_path = f"{relative_dir}/❓ Προς Κατηγοριοποίηση/{filename}"
+            file_info['AI_Classification_Used'] = False
+            file_info['Manual_Review_Required'] = True
+
+        # Προσθέτουμε πληροφορίες οργάνωσης
+        file_info['Organization_Type'] = 'LOCAL_ORGANIZATION'
+        file_info['Organization_Notes'] = 'Τοπική οργάνωση - δημιουργία υποφακέλων μέσα στον ίδιο φάκελο'
+        file_info['Current_Folder'] = relative_dir
+        file_info['Suggested_Subfolder'] = os.path.dirname(suggested_path.replace(f"{relative_dir}/", "")) if "/" in suggested_path.replace(f"{relative_dir}/", "") else ""
+
+        return suggested_path
 
     def _perform_safety_verification(self, processed_files: List[Dict], expected_count: int):
         print(f"{Colors.OKCYAN}🛡️  Performing safety verification...{Colors.ENDC}")
@@ -1802,7 +2039,7 @@ class ZeroLossFileOrganizer:
                         len(self.pattern_classifier.classification_cache),
                         len(self.pattern_classifier.game_match_cache),
                         len(self.pattern_classifier.similarity_cache),
-                        len(self.ai_classifier.ocr_cache),
+                        len(self.ai_classifier.ocr_cache) if self.ai_classifier else 0,
                         len(self.processed_hashes),
                         'Persistent'
                     ],
@@ -1820,7 +2057,7 @@ class ZeroLossFileOrganizer:
                         f"Skip {len(self.pattern_classifier.classification_cache)} classifications",
                         f"Skip {len(self.pattern_classifier.game_match_cache)} game matches",
                         f"Skip {len(self.pattern_classifier.similarity_cache)} similarity calcs",
-                        f"Skip {len(self.ai_classifier.ocr_cache)} OCR extractions",
+                        f"Skip {len(self.ai_classifier.ocr_cache) if self.ai_classifier else 0} OCR extractions",
                         f"Skip {len(self.processed_hashes)} processed files",
                         "Instant model loading"
                     ]
@@ -2004,7 +2241,7 @@ class ZeroLossFileOrganizer:
         try:
             hash_file = self.config.get("processed_hashes_file", "processed_hashes.json")
             with open(hash_file, 'w') as f:
-                json.dump(list(self.processed_hashes), f, indent=2)
+                json.dump(self.processed_hashes, f, indent=2)
             self.logger.info(f"Saved {len(self.processed_hashes)} processed hashes")
         except Exception as e:
             self.logger.error(f"Failed to save processed hashes: {e}")
@@ -2175,35 +2412,73 @@ class ZeroLossFileOrganizer:
             raise
 
     def _process_files_parallel(self, file_paths: List[str], folder_path: str) -> List[Dict]:
-        """Process files in parallel with incremental optimization"""
+        """Process files in parallel with incremental optimization and memory management"""
         results = []
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        # Conservative memory optimization
+        if len(file_paths) > 200:
+            adjusted_workers = min(2, self.max_workers)  # Very conservative for large datasets
+            print(f"📊 Large dataset detected, using {adjusted_workers} workers for maximum stability")
+        elif len(file_paths) > 100:
+            adjusted_workers = min(3, self.max_workers)  # Conservative for medium datasets
+            print(f"📊 Medium dataset detected, using {adjusted_workers} workers for stability")
+        else:
+            adjusted_workers = min(4, self.max_workers)  # Normal for small datasets
+
+        with ThreadPoolExecutor(max_workers=adjusted_workers) as executor:
             # Submit tasks with incremental checking
             future_to_file = {}
+            cached_count = 0
+            submitted_count = 0
 
-            for file_path in file_paths:
-                # Quick hash check for incremental processing
-                file_hash = self._get_file_hash_fast(file_path)
+            print(f"📊 Checking cache for {len(file_paths)} files...")
+            self._update_gui_progress(5, "🔍 Checking cache for processed files...", "📊 Checking file cache...")
 
-                if self.is_file_processed(file_path, file_hash):
-                    # Use cached result
-                    cached_result = self.get_cached_file_analysis(file_hash)
-                    if cached_result:
-                        results.append(cached_result)
+            for i, file_path in enumerate(file_paths):
+                try:
+                    # Quick hash check for incremental processing
+                    file_hash = self._get_file_hash_fast(file_path)
+
+                    if not file_hash:  # Skip files that couldn't be hashed
+                        print(f"⏭️ Skipping unhashable file: {os.path.basename(file_path)}")
                         continue
 
-                # Submit for processing
-                future = executor.submit(self._process_single_file_enhanced, file_path, folder_path)
-                future_to_file[future] = file_path
+                    if self.is_file_processed(file_path, file_hash):
+                        # Use cached result
+                        cached_result = self.get_cached_file_analysis(file_hash)
+                        if cached_result:
+                            results.append(cached_result)
+                            cached_count += 1
+                            continue
 
-            # Collect results with progress tracking
+                    # Submit for processing
+                    future = executor.submit(self._process_single_file_enhanced, file_path, folder_path)
+                    future_to_file[future] = file_path
+                    submitted_count += 1
+
+                    # Progress update every 50 files during submission
+                    if (i + 1) % 50 == 0:
+                        progress = 5 + ((i + 1) / len(file_paths)) * 15  # 5-20% for submission
+                        print(f"📋 Submitted {submitted_count} files for processing...")
+                        self._update_gui_progress(progress, f"📋 Submitting files... {i+1}/{len(file_paths)}", f"📋 Submitted {submitted_count} files")
+
+                except Exception as e:
+                    print(f"⏭️ Error preparing file {os.path.basename(file_path)}: {e}")
+                    continue
+
+            cache_percentage = (cached_count/len(file_paths)*100) if len(file_paths) > 0 else 0
+            print(f"✅ Cache hit: {cached_count}/{len(file_paths)} files ({cache_percentage:.1f}%)")
+            print(f"🔄 Processing {len(future_to_file)} new files...")
+            self._update_gui_progress(20, f"🔄 Processing {len(future_to_file)} new files...", f"✅ Cache: {cached_count} files | Processing: {len(future_to_file)}")
+
+            # Collect results with progress tracking and error handling
             completed = 0
             total_submitted = len(future_to_file)
+            error_count = 0
 
             for future in as_completed(future_to_file):
                 try:
-                    result = future.result()
+                    result = future.result(timeout=30)  # 30 second timeout per file
                     if result:
                         results.append(result)
                         # Cache the result for next run
@@ -2212,18 +2487,37 @@ class ZeroLossFileOrganizer:
                             self.cache_file_analysis(future_to_file[future], file_hash, result)
 
                     completed += 1
-                    if completed % 50 == 0 or completed == total_submitted:
-                        progress = (completed / total_submitted) * 100
-                        print(f"{Colors.OKCYAN}⚡ Progress: {completed}/{total_submitted} ({progress:.1f}%){Colors.ENDC}")
+                    # More frequent progress updates - every 5 files
+                    if completed % 5 == 0 or completed == total_submitted:
+                        progress = (completed / total_submitted) * 100 if total_submitted > 0 else 100
+                        total_processed = cached_count + completed
+                        overall_progress = (total_processed / len(file_paths)) * 100
+
+                        # Map to 20-85% range for GUI progress bar
+                        gui_progress = 20 + (overall_progress * 0.65)
+
+                        print(f"⚡ Processing: {completed}/{total_submitted} ({progress:.1f}%) | Overall: {total_processed}/{len(file_paths)} ({overall_progress:.1f}%)")
+                        self._update_gui_progress(gui_progress, f"⚡ Processing files... {total_processed}/{len(file_paths)}", f"⚡ Completed: {completed}/{total_submitted}")
 
                 except Exception as e:
-                    self.logger.error(f"Error processing {future_to_file[future]}: {e}")
+                    file_path = future_to_file[future]
+                    print(f"❌ Error processing {os.path.basename(file_path)}: {e}")
+                    self.logger.error(f"Error processing {file_path}: {e}")
+                    self._update_gui_progress(None, None, f"❌ Error: {os.path.basename(file_path)}")
+                    completed += 1
+                    error_count += 1
 
+        print(f"✅ Parallel processing complete! Total results: {len(results)}")
+        if error_count > 0:
+            print(f"⚠️ Encountered {error_count} errors during processing")
+        self._update_gui_progress(85, "✅ File processing complete!", f"✅ Processed {len(results)} files")
         return results
 
     def _process_files_sequential(self, file_paths: List[str], folder_path: str) -> List[Dict]:
         """Process files sequentially with incremental optimization"""
         results = []
+
+        self._update_gui_progress(5, "🔍 Starting sequential processing...", "📄 Sequential processing mode")
 
         for i, file_path in enumerate(file_paths):
             try:
@@ -2248,29 +2542,64 @@ class ZeroLossFileOrganizer:
                 # Progress reporting
                 if (i + 1) % 10 == 0 or (i + 1) == len(file_paths):
                     progress = ((i + 1) / len(file_paths)) * 100
+                    # Map to 5-85% range for GUI progress bar
+                    gui_progress = 5 + (progress * 0.80)
+
                     print(f"{Colors.OKCYAN}📄 Progress: {i + 1}/{len(file_paths)} ({progress:.1f}%){Colors.ENDC}")
+                    self._update_gui_progress(gui_progress, f"📄 Processing files... {i+1}/{len(file_paths)}", f"📄 Processed: {i + 1}/{len(file_paths)}")
 
             except Exception as e:
+                print(f"❌ Error processing {os.path.basename(file_path)}: {e}")
                 self.logger.error(f"Error processing {file_path}: {e}")
+                self._update_gui_progress(None, None, f"❌ Error: {os.path.basename(file_path)}")
 
+        print(f"✅ Sequential processing complete! Total results: {len(results)}")
+        self._update_gui_progress(85, "✅ File processing complete!", f"✅ Processed {len(results)} files")
         return results
 
     def _get_file_hash_fast(self, file_path: str) -> str:
-        """Get file hash with caching for performance"""
+        """Get file hash with caching for performance and iCloud handling"""
         # Use file stats as quick identifier
         try:
+            # Quick check for iCloud files - skip problematic ones immediately
+            if "com~apple~CloudDocs" in file_path:
+                # Quick accessibility test
+                try:
+                    stat = os.stat(file_path)
+                    size = stat.st_size
+
+                    # Skip empty or very large iCloud files that often cause issues
+                    if size == 0:
+                        print(f"⏭️ Skipping empty iCloud file: {os.path.basename(file_path)}")
+                        return ""
+                    elif size > 100 * 1024 * 1024:  # 100MB threshold for iCloud
+                        print(f"⏭️ Skipping large iCloud file: {os.path.basename(file_path)}")
+                        return ""
+
+                    # Use metadata-only hash for iCloud files
+                    quick_id = f"{file_path}_{size}_{stat.st_mtime}_{stat.st_ino}"
+                    quick_hash = hashlib.sha256(quick_id.encode()).hexdigest()
+                    self.hash_cache[quick_id] = quick_hash
+                    return quick_hash
+
+                except (OSError, PermissionError):
+                    print(f"⏭️ Skipping inaccessible iCloud file: {os.path.basename(file_path)}")
+                    return ""
+
+            # Normal file processing for non-iCloud files
             stat = os.stat(file_path)
             quick_id = f"{file_path}_{stat.st_size}_{stat.st_mtime}"
 
             if quick_id in self.hash_cache:
                 return self.hash_cache[quick_id]
 
-            # Calculate actual hash
+            # Calculate actual hash for local files only
             file_hash = self._calculate_file_hash(file_path)
             self.hash_cache[quick_id] = file_hash
             return file_hash
 
         except Exception as e:
+            print(f"⏭️ Hash error for {os.path.basename(file_path)}: {e}")
             self.logger.error(f"Error calculating hash for {file_path}: {e}")
             return ""
 
@@ -2376,13 +2705,15 @@ class ZeroLossFileOrganizer:
         print(f"\n{Colors.OKGREEN}✅ Ready for Excel export with comprehensive analysis!{Colors.ENDC}")
 
     def _discover_files(self, folder_path: str) -> List[str]:
-        """Discover all processable files in the given folder"""
+        """Discover all processable files in the given folder with iCloud handling"""
         supported_extensions = {
             '.pdf', '.doc', '.docx', '.txt', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
             '.xls', '.xlsx', '.csv', '.ppt', '.pptx', '.rtf', '.odt', '.ods', '.odp'
         }
 
         file_paths = []
+        skipped_files = 0
+        problematic_paths = []
 
         try:
             for root, dirs, files in os.walk(folder_path):
@@ -2397,16 +2728,49 @@ class ZeroLossFileOrganizer:
                     file_ext = Path(file).suffix.lower()
 
                     if file_ext in supported_extensions:
-                        file_paths.append(file_path)
+                        # Quick accessibility check for iCloud files
+                        try:
+                            # Quick stat check - if this fails, file is not accessible
+                            os.stat(file_path)
+
+                            # For iCloud files, do a quick size check
+                            if "com~apple~CloudDocs" in file_path:
+                                try:
+                                    size = os.path.getsize(file_path)
+                                    if size == 0:  # Empty file, probably not downloaded
+                                        print(f"⏭️ Skipping iCloud file not downloaded: {os.path.basename(file_path)}")
+                                        skipped_files += 1
+                                        continue
+                                except:
+                                    print(f"⏭️ Skipping inaccessible iCloud file: {os.path.basename(file_path)}")
+                                    skipped_files += 1
+                                    continue
+
+                            file_paths.append(file_path)
+
+                        except (OSError, PermissionError) as e:
+                            print(f"⏭️ Skipping inaccessible file: {os.path.basename(file_path)} ({e})")
+                            skipped_files += 1
+                            problematic_paths.append(file_path)
+                            continue
 
         except Exception as e:
             self.logger.error(f"Error discovering files in {folder_path}: {e}")
 
+        if skipped_files > 0:
+            print(f"⚠️ Skipped {skipped_files} inaccessible files (iCloud not downloaded, etc.)")
+
+        print(f"✅ Discovered {len(file_paths)} accessible files")
         return file_paths
 
     def _process_single_file_enhanced(self, file_path: str, base_folder: str) -> Optional[Dict]:
         """Process a single file with enhanced analysis"""
         try:
+            # Debug logging to show current file being processed
+            filename = os.path.basename(file_path)
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"🔍 Processing: {filename}")
+
             # Basic file information
             file_info = {
                 'File_Path': file_path,
@@ -2481,16 +2845,103 @@ class ZeroLossFileOrganizer:
             return None
 
     def _calculate_file_hash(self, file_path: str) -> str:
-        """Calculate SHA-256 hash of a file"""
-        hash_sha256 = hashlib.sha256()
+        """Calculate SHA-256 hash of a file with timeout handling for iCloud"""
+        import threading
+        import queue
+
+        def hash_worker(file_path, result_queue):
+            """Worker function to calculate hash in separate thread"""
+            try:
+                hash_sha256 = hashlib.sha256()
+                file_size = os.path.getsize(file_path)
+
+                # Check if it's an iCloud file
+                is_icloud = "com~apple~CloudDocs" in file_path
+
+                # For iCloud files or large files, use quick hash based on file metadata
+                if is_icloud or file_size > 50 * 1024 * 1024:  # 50MB threshold
+                    # Quick hash using file metadata
+                    stat = os.stat(file_path)
+                    quick_data = f"{file_path}_{stat.st_size}_{stat.st_mtime}_{stat.st_ino}".encode()
+                    hash_sha256.update(quick_data)
+
+                    # Read only first and last 4KB for large files
+                    if file_size > 8192:  # 8KB
+                        with open(file_path, "rb") as f:
+                            # First 4KB
+                            chunk = f.read(4096)
+                            hash_sha256.update(chunk)
+
+                            # Last 4KB if file is large enough
+                            if file_size > 8192:
+                                f.seek(-4096, 2)  # Seek to 4KB from end
+                                chunk = f.read(4096)
+                                hash_sha256.update(chunk)
+                    else:
+                        # Small file, read entirely
+                        with open(file_path, "rb") as f:
+                            for chunk in iter(lambda: f.read(4096), b""):
+                                hash_sha256.update(chunk)
+                else:
+                    # Normal hash calculation for local files
+                    with open(file_path, "rb") as f:
+                        for chunk in iter(lambda: f.read(4096), b""):
+                            hash_sha256.update(chunk)
+
+                result_queue.put(('success', hash_sha256.hexdigest()))
+
+            except Exception as e:
+                result_queue.put(('error', str(e)))
+
         try:
-            with open(file_path, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_sha256.update(chunk)
-            return hash_sha256.hexdigest()
+            # Check if it's an iCloud file for timeout selection
+            is_icloud = "com~apple~CloudDocs" in file_path
+            timeout_seconds = 3 if is_icloud else 10  # Shorter timeout for iCloud
+
+            # Create queue and thread
+            result_queue = queue.Queue()
+            worker_thread = threading.Thread(target=hash_worker, args=(file_path, result_queue))
+            worker_thread.daemon = True
+            worker_thread.start()
+
+            # Wait for result with timeout
+            try:
+                status, result = result_queue.get(timeout=timeout_seconds)
+                if status == 'success':
+                    return result
+                else:
+                    raise Exception(result)
+            except queue.Empty:
+                # Timeout occurred
+                print(f"⏰ File timeout, using quick hash: {os.path.basename(file_path)}")
+                self.logger.warning(f"Timeout calculating hash for {file_path}, using quick hash")
+
+                # Generate quick hash from file metadata only
+                try:
+                    stat = os.stat(file_path)
+                    quick_data = f"{file_path}_{stat.st_size}_{stat.st_mtime}".encode()
+                    return hashlib.sha256(quick_data).hexdigest()
+                except:
+                    # Fallback to filename hash
+                    return hashlib.sha256(file_path.encode()).hexdigest()
+
         except Exception as e:
-            self.logger.error(f"Error calculating hash for {file_path}: {e}")
-            return ""
+            if "Operation timed out" in str(e):
+                print(f"⏰ File timeout, using quick hash: {os.path.basename(file_path)}")
+                self.logger.warning(f"Timeout calculating hash for {file_path}, using quick hash")
+
+                # Generate quick hash from file metadata only
+                try:
+                    stat = os.stat(file_path)
+                    quick_data = f"{file_path}_{stat.st_size}_{stat.st_mtime}".encode()
+                    return hashlib.sha256(quick_data).hexdigest()
+                except:
+                    # Fallback to filename hash
+                    return hashlib.sha256(file_path.encode()).hexdigest()
+            else:
+                print(f"❌ Hash error for {os.path.basename(file_path)}: {e}")
+                self.logger.error(f"Error calculating hash for {file_path}: {e}")
+                return hashlib.sha256(file_path.encode()).hexdigest()
 
     def _get_recommended_action(self, file_info: Dict) -> str:
         """Get recommended action for a file"""
@@ -2505,22 +2956,8 @@ class ZeroLossFileOrganizer:
             return file_info.get('Recommended_Action', 'ORGANIZE')
 
     def _get_suggested_location(self, file_info: Dict) -> str:
-        """Get suggested organization location"""
-        doc_type = file_info.get('Document_Type', 'Unknown')
-
-        # Create suggested path based on document type
-        if doc_type == 'CE Certificate':
-            return f"Documents/Certificates/CE/{file_info.get('File_Name', '')}"
-        elif doc_type == 'Manual':
-            return f"Documents/Manuals/{file_info.get('File_Name', '')}"
-        elif doc_type == 'Invoice':
-            return f"Documents/Financial/Invoices/{file_info.get('File_Name', '')}"
-        elif doc_type == 'Bank Proof':
-            return f"Documents/Financial/Bank_Documents/{file_info.get('File_Name', '')}"
-        elif doc_type == 'Packing List':
-            return f"Documents/Logistics/Packing_Lists/{file_info.get('File_Name', '')}"
-        else:
-            return f"Documents/Organized/{doc_type}/{file_info.get('File_Name', '')}"
+        """🇬🇷 Προτεινόμενη ΤΟΠΙΚΗ οργάνωση - μόνο υποφάκελοι!"""
+        return file_info.get('Suggested_New_Path', file_info.get('Current_Path', 'Μη διαθέσιμο'))
 
     def _requires_user_decision(self, file_info: Dict) -> bool:
         """Check if file requires user decision"""
@@ -2631,7 +3068,9 @@ def main():
         # Configure options
         if args.no_ai:
             organizer.config['enable_ai_enhancement'] = False
-            print(f"{Colors.WARNING}🚫 AI enhancement disabled{Colors.ENDC}")
+            print(f"{Colors.WARNING}🚫 AI enhancement disabled (not recommended for folder matching){Colors.ENDC}")
+        else:
+            print(f"{Colors.OKGREEN}🤖 AI enhancement ENABLED for smart folder matching!{Colors.ENDC}")
 
         if args.workers:
             organizer.max_workers = min(args.workers, os.cpu_count())
@@ -2743,15 +3182,21 @@ if __name__ == "__main__":
                     self.root = tk.Tk()
                     self.root.title("🎮 ΤΟΥΜΠΑΝΗ - AI File Organizer")
                     self.root.geometry("900x700")
-                    self.root.configure(bg="#1e1e1e")
 
-                    # Variables
-                    self.folder_path = tk.StringVar()
+                    # Configure style
+                    style = Style()
+                    style.theme_use('aqua')  # Use native macOS style
+
+                    # Variables with default values
+                    self.folder_path = tk.StringVar(value="/Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας")
                     self.output_file = tk.StringVar(value="file_analysis_premium.xlsx")
                     self.progress_var = tk.DoubleVar()
                     self.status_text = tk.StringVar(value="Ready to analyze files...")
 
                     self.create_widgets()
+
+                    # Auto-start analysis after GUI is ready
+                    self.root.after(1000, self.auto_start_analysis)  # Start after 1 second
 
                 def create_widgets(self):
                     """Create the beautiful GUI widgets"""
@@ -2853,6 +3298,12 @@ if __name__ == "__main__":
                     if folder:
                         self.folder_path.set(folder)
 
+                def auto_start_analysis(self):
+                    """Automatically start analysis with default folder"""
+                    print("🔧 DEBUG: Auto-starting analysis...")
+                    self.status_text.set("🚀 Auto-starting analysis...")
+                    self.start_analysis()
+
                 def start_analysis(self):
                     """Start the file analysis process"""
                     if not self.folder_path.get():
@@ -2883,6 +3334,24 @@ if __name__ == "__main__":
 
                         # Create organizer with GUI mode
                         organizer = ZeroLossFileOrganizer(gui_mode=True)
+
+                        # Set up GUI callback for progress updates
+                        def gui_progress_callback(progress, status, log_msg):
+                            if progress is not None:
+                                self.progress_var.set(progress)
+                            if status is not None:
+                                self.status_text.set(status)
+                            if log_msg is not None:
+                                self.log_text.insert('end', f"{log_msg}\n")
+                                self.log_text.see('end')
+                            self.root.update_idletasks()  # Force GUI update
+
+                        organizer.set_gui_callback(gui_progress_callback)
+
+                        # Configure verbose mode based on checkbox
+                        if self.verbose_var.get():
+                            organizer.set_verbose_mode(True)
+
                         self.log_text.insert('end', "✅ DEBUG: Organizer created successfully\n")
                         self.log_text.see('end')
 
@@ -2905,28 +3374,46 @@ if __name__ == "__main__":
                         self.log_text.insert('end', f"📁 DEBUG: Processing folder: {self.folder_path.get()}\n")
                         self.log_text.see('end')
 
-                        # Process files
-                        processed_files = organizer.process_files_enhanced(self.folder_path.get())
-                        self.log_text.insert('end', f"✅ DEBUG: Processed {len(processed_files)} files\n")
-                        self.log_text.see('end')
+                        # Process files with better error handling and real-time updates
+                        try:
+                            processed_files = organizer.process_files_enhanced(self.folder_path.get())
+                            self.log_text.insert('end', f"✅ DEBUG: Processed {len(processed_files)} files\n")
+                            self.log_text.see('end')
+                        except Exception as process_error:
+                            self.log_text.insert('end', f"⚠️ DEBUG: Processing had errors but continuing: {process_error}\n")
+                            self.log_text.see('end')
+                            # Try to continue with whatever was processed
+                            processed_files = []
 
-                        self.progress_var.set(80)
+                        self.progress_var.set(90)
                         self.status_text.set("📊 Creating Excel report...")
                         self.log_text.insert('end', "📊 DEBUG: Creating Excel report...\n")
                         self.log_text.see('end')
 
-                        # Export to Excel
-                        organizer.export_to_excel_enhanced(processed_files, self.output_file.get())
-                        self.log_text.insert('end', f"✅ DEBUG: Excel report saved to {self.output_file.get()}\n")
-                        self.log_text.see('end')
+                        # Export to Excel only if we have files
+                        if processed_files:
+                            try:
+                                organizer.export_to_excel_enhanced(processed_files, self.output_file.get())
+                                self.log_text.insert('end', f"✅ DEBUG: Excel report saved to {self.output_file.get()}\n")
+                                self.log_text.see('end')
+                            except Exception as excel_error:
+                                self.log_text.insert('end', f"❌ DEBUG: Excel export failed: {excel_error}\n")
+                                self.log_text.see('end')
+                        else:
+                            self.log_text.insert('end', "⚠️ DEBUG: No files to export\n")
+                            self.log_text.see('end')
 
                         # Update GUI
                         self.progress_var.set(100)
                         self.status_text.set("✅ Analysis complete!")
 
-                        # Show completion message
-                        messagebox.showinfo("Success",
-                                          f"Analysis complete!\n{len(processed_files)} files analyzed.\nResults saved to: {self.output_file.get()}")
+                        # Show completion message only if successful
+                        if processed_files:
+                            messagebox.showinfo("Success",
+                                              f"Analysis complete!\n{len(processed_files)} files analyzed.\nResults saved to: {self.output_file.get()}")
+                        else:
+                            messagebox.showwarning("Warning",
+                                                 "Analysis completed but no files were processed successfully.")
 
                     except Exception as e:
                         error_msg = f"❌ DEBUG: Analysis failed: {e}"
@@ -2934,7 +3421,9 @@ if __name__ == "__main__":
                         self.log_text.insert('end', error_msg + "\n")
                         self.log_text.see('end')
                         self.status_text.set("❌ Analysis failed!")
-                        messagebox.showerror("Error", f"Analysis failed: {e}")
+
+                        # Show error but don't crash
+                        messagebox.showerror("Error", f"Analysis failed: {str(e)[:200]}...")
                         import traceback
                         traceback.print_exc()
 
