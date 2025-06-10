@@ -1,0 +1,47 @@
+2025-06-11 01:35:14,234 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 01:35:14,239 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:11434
+2025-06-11 01:35:14,248 - urllib3.connectionpool - DEBUG - http://localhost:11434 "GET /api/tags HTTP/1.1" 200 None
+2025-06-11 01:35:14,248 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 01:35:14,249 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 01:35:14,249 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 01:35:14,251 - urllib3.connectionpool - DEBUG - Starting new HTTP connection (1): localhost:11434
+2025-06-11 01:35:14,254 - urllib3.connectionpool - DEBUG - http://localhost:11434 "GET /api/tags HTTP/1.1" 200 None
+2025-06-11 01:35:14,255 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 01:35:14,255 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 01:35:14,255 - advanced_audit_system - INFO - ✅ Successfully loaded existing modules
+2025-06-11 01:35:14,255 - advanced_audit_system - INFO - 🔍 Starting comprehensive audit of: /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t
+2025-06-11 01:35:14,255 - advanced_audit_system - INFO - 📂 Phase 1: Discovering and classifying files...
+2025-06-11 01:35:14,257 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/CE_Certificate_Gaming_Controller.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/CE_Certificate_Gaming_Controller.pdf'.
+2025-06-11 01:35:14,258 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/BL_Container1.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/BL_Container1.pdf'.
+2025-06-11 01:35:14,260 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/FINAL_Invoice_Queena_001.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/FINAL_Invoice_Queena_001.pdf'.
+2025-06-11 01:35:14,261 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Invoice_Queena_001_COPY.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Invoice_Queena_001_COPY.pdf'.
+2025-06-11 01:35:14,263 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Invoice_Queena_001.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Invoice_Queena_001.pdf'.
+2025-06-11 01:35:14,264 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Doc1.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Doc1.pdf'.
+2025-06-11 01:35:14,265 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Container 1.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 1/Queena/Container 1.pdf'.
+2025-06-11 01:35:14,266 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Shared Documents/Send_to_Dad.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Shared Documents/Send_to_Dad.pdf'.
+2025-06-11 01:35:14,268 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/TEMPORARY/Copy of Invoice.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/TEMPORARY/Copy of Invoice.pdf'.
+2025-06-11 01:35:14,269 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 3/CE_Random_Product.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 3/CE_Random_Product.pdf'.
+2025-06-11 01:35:14,270 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 3/Manual_Gaming_Headset.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 3/Manual_Gaming_Headset.pdf'.
+2025-06-11 01:35:14,271 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 2/Argy/Invoice_Argy_002.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Container 2/Argy/Invoice_Argy_002.pdf'.
+2025-06-11 01:35:14,272 - super_file_organizer - ERROR - OCR error for /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Argyrhs/Container 2 Invoice.pdf: Failed to open file '/var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/audit_test_vc4oqi4t/Argyrhs/Container 2 Invoice.pdf'.
+2025-06-11 01:35:14,272 - advanced_audit_system - INFO - 🗂️  Phase 2: Analyzing folder structure...
+2025-06-11 01:35:14,274 - advanced_audit_system - INFO - 🔍 Phase 3: Detecting duplicate files...
+2025-06-11 01:35:14,276 - advanced_audit_system - INFO - 🎯 Phase 4: Checking folder consistency...
+2025-06-11 01:35:14,276 - advanced_audit_system - INFO - 📋 Phase 5: Analyzing CE coverage...
+2025-06-11 01:35:14,276 - advanced_audit_system - INFO - 📊 Phase 6: Checking document completeness...
+2025-06-11 01:35:14,277 - advanced_audit_system - INFO - ✅ Comprehensive audit completed!
+2025-06-11 01:36:22,391 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 01:36:22,400 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 01:36:22,400 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 01:36:22,400 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 01:36:22,406 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 01:36:22,406 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 01:36:22,406 - advanced_audit_system - INFO - ✅ Successfully loaded existing modules
+2025-06-11 01:36:22,406 - advanced_audit_system - INFO - 🔍 Starting comprehensive audit of: /var/folders/dw/k_090q8s2z5fx5vbbx5y3zy00000gn/T/simple_audit_test_2snwbtfg
+2025-06-11 01:36:22,406 - advanced_audit_system - INFO - 📂 Phase 1: Discovering and classifying files...
+2025-06-11 01:36:22,410 - advanced_audit_system - INFO - 🗂️  Phase 2: Analyzing folder structure...
+2025-06-11 01:36:22,412 - advanced_audit_system - INFO - 🔍 Phase 3: Detecting duplicate files...
+2025-06-11 01:36:22,413 - advanced_audit_system - INFO - 🎯 Phase 4: Checking folder consistency...
+2025-06-11 01:36:22,414 - advanced_audit_system - INFO - 📋 Phase 5: Analyzing CE coverage...
+2025-06-11 01:36:22,414 - advanced_audit_system - INFO - 📊 Phase 6: Checking document completeness...
+2025-06-11 01:36:22,414 - advanced_audit_system - INFO - ✅ Comprehensive audit completed!

@@ -132,8 +132,12 @@ class ExcelReportGenerator:
             sheet[f'B{row+i}'] = value
 
             # Apply styling
-            sheet[f'A{row+i}'].style = 'summary'
-            sheet[f'B{row+i}'].style = 'summary'
+            sheet[f'A{row+i}'].font = self.styles['summary']['font']
+            sheet[f'A{row+i}'].fill = self.styles['summary']['fill']
+            sheet[f'A{row+i}'].alignment = self.styles['summary']['alignment']
+            sheet[f'B{row+i}'].font = self.styles['summary']['font']
+            sheet[f'B{row+i}'].fill = self.styles['summary']['fill']
+            sheet[f'B{row+i}'].alignment = self.styles['summary']['alignment']
 
         # Issues summary table
         row = 15
