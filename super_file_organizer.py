@@ -997,6 +997,21 @@ class ZeroLossFileOrganizer:
 
         # Store GUI callback for progress updates
         self.gui_callback = None
+        self.gui_mode = gui_mode
+
+        # Initialize cache
+        self.cache = EnhancedCache()
+
+        # Performance tracking
+        self.stats = {
+            'files_processed': 0,
+            'cache_hits': 0,
+            'processing_time': 0,
+            'ai_enhancements': 0
+        }
+    def set_gui_callback(self, callback_func):
+        """Set a callback function for GUI progress updates"""
+        self.gui_callback = callback_func
     def set_gui_callback(self, callback_func):
         """Set a callback function for GUI progress updates"""
         self.gui_callback = callback_func
