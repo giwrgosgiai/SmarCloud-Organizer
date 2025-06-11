@@ -33,12 +33,21 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
 from collections import defaultdict, Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
 from functools import lru_cache
 import threading
 from difflib import SequenceMatcher
 import signal
 import queue
+import multiprocessing
+import mmap
+import sqlite3
+from concurrent.futures import ProcessPoolExecutor
+from functools import lru_cache
+import threading
+from queue import Queue
+import tempfile
+import shutil
 
 # Auto-install AI dependencies
 def auto_install_ai_dependencies():
@@ -347,6 +356,80 @@ class AIEnhancedFileClassifier:
         self.ocr_cache = {}
         self.classification_cache = {}
         self.semantic_cache = {}
+        self.document_patterns = {
+            'CE': [
+                r'ce[_\s].*\.pdf$', r'.*[_\s]ce[_\s].*\.pdf$', r'.*ce\.pdf$', r'certificate.*\.pdf$',
+                r'conform.*\.pdf$', r'certification.*\.pdf$', r'πιστοποι.*\.pdf$', r'συμμορφ.*\.pdf$',
+                r'βεβαιωσ.*\.pdf$', r'test.*report.*\.pdf$', r'emc.*report.*\.pdf$', r'safety.*\.pdf$',
+                r'.*test.*report.*\.(pdf|jpg|jpeg)$', r'.*emc.*report.*\.(pdf|jpg|jpeg)$',
+                r'.*cert.*\.(pdf|jpg|jpeg)$', r'.*ce.*\.(pdf|jpg|jpeg)$'
+            ],
+            'Manual': [
+                r'manual.*\.(pdf|docx|doc)$', r'instruction.*\.(pdf|docx|doc)$', r'guide.*\.(pdf|docx|doc)$',
+                r'handbook.*\.(pdf|docx|doc)$', r'user.*guide.*\.(pdf|docx|doc)$', r'εγχειριδ.*\.(pdf|docx|doc)$',
+                r'οδηγι.*\.(pdf|docx|doc)$', r'χειρισμ.*\.(pdf|docx|doc)$', r'βιβλιο.*οδηγιων.*\.(pdf|docx|doc)$',
+                r'operation.*\.(pdf|docx|doc)$', r'maintenance.*\.(pdf|docx|doc)$'
+            ],
+            'Invoice': [
+                r'invoice.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'bill.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'receipt.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'.*invoice.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'payment.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'τιμολογ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'λογαριασμ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'αποδειξ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'πληρωμ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'proforma.*\.(pdf|xlsx|xls)$',
+                r'commercial.*invoice.*\.(pdf|xlsx|xls)$', r'customs.*invoice.*\.(pdf|xlsx|xls)$',
+                r'check.*\.(pdf|xlsx|xls)$', r'balance.*\.(pdf|xlsx|xls)$',
+                r'.*πληρωμη.*\.(pdf|xlsx|xls|jpg)$', r'.*\.xlsx?$'
+            ],
+            'Bank Proof': [
+                r'bank.*\.(pdf|jpg|jpeg|png)$', r'proof.*\.(pdf|jpg|jpeg|png)$',
+                r'statement.*\.(pdf|jpg|jpeg|png)$', r'transfer.*\.(pdf|jpg|jpeg|png)$',
+                r'payment.*proof.*\.(pdf|jpg|jpeg|png)$', r'τραπεζ.*\.(pdf|jpg|jpeg|png)$',
+                r'αποδειξ.*πληρωμ.*\.(pdf|jpg|jpeg|png)$', r'εξτρα.*\.(pdf|jpg|jpeg|png)$',
+                r'μεταφορ.*\.(pdf|jpg|jpeg|png)$', r'deposit.*\.(pdf|jpg|jpeg|png)$',
+                r'foreigntransfer.*\.(pdf|jpg|jpeg|png)$', r'refund.*\.(pdf|jpg|jpeg|png)$'
+            ],
+            'Packing List': [
+                r'pack.*list.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'shipping.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'delivery.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'manifest.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'λιστ.*συσκευασ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'αποστολ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$',
+                r'παραδοσ.*\.(pdf|xlsx|xls|jpg|jpeg|png)$', r'loading.*\.(pdf|xlsx|xls)$',
+                r'cargo.*\.(pdf|xlsx|xls)$', r'items.*list.*\.(pdf|xlsx|xls)$',
+                r'.*\.xls.*$', r'list.*\.(pdf|xlsx|xls)$', r'container.*list.*\.(pdf|xlsx|xls)$',
+                r'περιεχομενο.*\.(pdf|xlsx|xls)$'
+            ],
+            'Shipping Documents': [
+                r'bl.*\.(pdf|jpg|jpeg|png)$', r'bill.*lading.*\.(pdf|jpg|jpeg|png)$',
+                r'hbl.*\.(pdf|jpg|jpeg|png)$', r'telex.*release.*\.(pdf|jpg|jpeg|png)$',
+                r'customs.*declaration.*\.(pdf|docx|doc|jpg|jpeg|png)$', r'clearance.*\.(pdf|jpg|jpeg|png)$',
+                r'τελωνει.*\.(pdf|docx|doc|jpg|jpeg|png)$', r'εκτελωνισμ.*\.(pdf|jpg|jpeg|png)$'
+            ],
+            'Price Lists': [
+                r'price.*list.*\.(pdf|xlsx|xls)$', r'quotation.*\.(pdf|xlsx|xls)$',
+                r'catalog.*\.(pdf|xlsx|xls)$', r'τιμοκαταλογ.*\.(pdf|xlsx|xls)$',
+                r'προσφορ.*\.(pdf|xlsx|xls)$', r'cennik.*\.(pdf|xlsx|xls)$'
+            ],
+            'Contracts': [
+                r'contract.*\.(pdf|docx|doc)$', r'agreement.*\.(pdf|docx|doc)$',
+                r'συμβολαι.*\.(pdf|docx|doc)$', r'συμφων.*\.(pdf|docx|doc)$',
+                r'declaration.*\.(pdf|docx|doc)$'
+            ],
+            'Travel Documents': [
+                r'passport.*\.(pdf|jpg|jpeg|png)$', r'visa.*\.(pdf|jpg|jpeg|png)$',
+                r'ticket.*\.(pdf|jpg|jpeg|png)$', r'hotel.*\.(pdf|jpg|jpeg|png)$',
+                r'travel.*\.(pdf|jpg|jpeg|png)$', r'διαβατηρι.*\.(pdf|jpg|jpeg|png)$'
+            ]
+        }
+        self.llama_api_url = 'http://localhost:11434/api/generate'
+        self.llama_model = 'llama3.2:3b'
+        self.initialize_ai_models()
+        self.cache = EnhancedCache()
+        self.parallel_processor = ParallelFileProcessor()
+        self.ensemble_weights = {
+            'llama': 0.4,
+            'transformers': 0.4,
+            'pattern': 0.2
+        }
+
     def initialize_ai_models(self):
         self.models = {}
         global HAS_OCR, HAS_TRANSFORMERS, HAS_SENTENCE_TRANSFORMERS
@@ -2978,6 +3061,73 @@ class ZeroLossFileOrganizer:
             return True
 
         return False
+
+    def classify_with_llama_api(self, text_content: str, folder_path: str) -> Dict:
+        """🤖 Direct Llama API classification for speed"""
+        try:
+            prompt = f"""
+            Analyze this document:
+
+            CONTENT: {text_content[:1000]}...
+            FOLDER: {folder_path}
+
+            Respond with: TYPE|CONFIDENCE|CONSISTENCY|ISSUES
+            Example: Invoice|0.9|CONSISTENT|None
+            """
+
+            response = requests.post(
+                self.llama_api_url,
+                json={
+                    'model': self.llama_model,
+                    'prompt': prompt,
+                    'stream': False,
+                    'options': {'temperature': 0.1, 'max_tokens': 100}
+                },
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                llama_response = result.get('response', '').strip()
+
+                if '|' in llama_response:
+                    parts = llama_response.split('|')
+                    return {
+                        'doc_type': parts[0].strip() if len(parts) > 0 else 'Unknown',
+                        'confidence': float(parts[1].strip()) if len(parts) > 1 and parts[1].replace('.','').isdigit() else 0.5,
+                        'consistency': parts[2].strip() if len(parts) > 2 else 'UNKNOWN',
+                        'issues': parts[3].strip() if len(parts) > 3 and parts[3].lower() != 'none' else None,
+                        'llama_used': True
+                    }
+
+        except Exception as e:
+            logging.warning(f"Llama API error: {e}")
+
+        return self._fallback_classification(text_content)
+
+    def enhanced_file_analysis(self, file_path: Path, folder_path: str = "") -> Dict:
+        """Enhanced file analysis with Llama API support"""
+        try:
+            text_content = self.extract_text_from_pdf(file_path) if file_path.suffix.lower() == '.pdf' else ""
+
+            # Try Llama API first for speed
+            if text_content and len(text_content.strip()) > 50:
+                llama_result = self.classify_with_llama_api(text_content, folder_path)
+                if llama_result['llama_used']:
+                    return {
+                        'doc_type': llama_result['doc_type'],
+                        'confidence': llama_result['confidence'],
+                        'consistency': llama_result['consistency'],
+                        'issues': llama_result['issues'],
+                        'text_sample': text_content[:200] + "..." if len(text_content) > 200 else text_content
+                    }
+
+            # Fallback to existing AI classification
+            return super().enhanced_file_analysis(file_path, folder_path)
+
+        except Exception as e:
+            logging.error(f"Error in enhanced file analysis: {e}")
+            return self._fallback_classification("")
 
 
 def main():

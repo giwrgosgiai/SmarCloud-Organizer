@@ -1,0 +1,10 @@
+---
+description: "Test-driven development για σταθερότητα"
+globs: ["src/**/*.ts", "src/**/*.js", "app/**/*.py"]
+alwaysApply: false
+---
+
+- Αν ζητηθεί feature ή bugfix, πρώτα γράψε tests.
+- Μετά υλοποίησε μόνο ό,τι χρειάζεται για να περάσουν.
+- Χρησιμοποίησε descriptive names και μικρά, ανεξάρτητα test cases.
+- Ενημέρωσε παλιά tests όταν αλλάζει συμπεριφορά.

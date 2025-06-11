@@ -42,11 +42,27 @@ TEMPLATE_INDEX = '''
 <body>
 <div class="container">
     <h1>Smart Audit Dashboard</h1>
-    <form method="post" action="/scan">
-        <label for="folder">Επιλογή φακέλου εργασίας:</label>
-        <input type="text" id="folder" name="folder" value="{{ folder }}" required>
+    <form id="folderForm" method="post" action="/scan" enctype="multipart/form-data">
+        <label for="folderPicker">Επιλογή φακέλου εργασίας:</label>
+        <input type="file" id="folderPicker" name="folderPicker" webkitdirectory directory multiple required>
+        <input type="hidden" id="folder" name="folder" value="">
         <button type="submit">Σάρωση & Audit</button>
     </form>
+    <script>
+    document.getElementById('folderForm').onsubmit = function(e) {
+        var files = document.getElementById('folderPicker').files;
+        if (files.length === 0) {
+            alert('Παρακαλώ επιλέξτε φάκελο!');
+            e.preventDefault();
+            return false;
+        }
+        // Get the root folder from the first file's webkitRelativePath
+        var firstPath = files[0].webkitRelativePath;
+        var rootFolder = firstPath.split('/')[0];
+        document.getElementById('folder').value = rootFolder;
+        return true;
+    };
+    </script>
     {% if files %}
     <form method="post" action="/assign">
         <div class="file-list">
@@ -170,13 +186,22 @@ def index():
 @app.route('/scan', methods=['POST'])
 def scan():
     global selected_folder, files_cache, folders_cache
-    selected_folder = request.form['folder']
-    if not os.path.isdir(selected_folder):
-        return render_template_string(TEMPLATE_INDEX, folder=selected_folder, files=[], folders=[], message=None, error='Ο φάκελος δεν υπάρχει!')
-    files = scan_files(selected_folder)
+    # Use the uploaded files to determine the root folder
+    if 'folderPicker' not in request.files:
+        return render_template_string(TEMPLATE_INDEX, folder='', files=[], folders=[], message=None, error='Παρακαλώ επιλέξτε φάκελο!')
+    files = request.files.getlist('folderPicker')
+    if not files:
+        return render_template_string(TEMPLATE_INDEX, folder='', files=[], folders=[], message=None, error='Παρακαλώ επιλέξτε φάκελο!')
+    # Get the root folder from the first file's filename
+    first_path = files[0].filename
+    root_folder = first_path.split('/')[0]
+    abs_root = os.path.abspath(root_folder)
+    if not os.path.isdir(abs_root):
+        return render_template_string(TEMPLATE_INDEX, folder=abs_root, files=[], folders=[], message=None, error='Ο φάκελος δεν υπάρχει!')
+    selected_folder = abs_root
+    files_list = scan_files(selected_folder)
     folders = get_all_folders(selected_folder)
-    # Run audit immediately
-    files_with_suggestions = run_audit(selected_folder, files)
+    files_with_suggestions = run_audit(selected_folder, files_list)
     files_cache.clear()
     files_cache.extend(files_with_suggestions)
     folders_cache.clear()
