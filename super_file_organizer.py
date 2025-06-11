@@ -1012,9 +1012,6 @@ class ZeroLossFileOrganizer:
     def set_gui_callback(self, callback_func):
         """Set a callback function for GUI progress updates"""
         self.gui_callback = callback_func
-    def set_gui_callback(self, callback_func):
-        """Set a callback function for GUI progress updates"""
-        self.gui_callback = callback_func
 
     def set_verbose_mode(self, verbose: bool):
         """Enable/disable verbose logging"""
@@ -3043,6 +3040,114 @@ class ZeroLossFileOrganizer:
                 logging.info(f"Initialized new cache: {cache_file}")
 
 
+class EnhancedCache:
+    """SQLite-based cache with thread safety"""
+    def __init__(self, cache_file="file_organizer_cache.db"):
+        self.cache_file = cache_file
+        self._init_db()
+        self._lock = threading.Lock()
+
+    def _init_db(self):
+        with sqlite3.connect(self.cache_file) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS file_cache (
+                    file_hash TEXT PRIMARY KEY,
+                    doc_type TEXT,
+                    confidence REAL,
+                    consistency TEXT,
+                    issues TEXT,
+                    text_sample TEXT,
+                    last_modified REAL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS llama_cache (
+                    text_hash TEXT PRIMARY KEY,
+                    response TEXT,
+                    timestamp REAL
+                )
+            """)
+
+    def get_cached_result(self, file_hash: str) -> Optional[Dict]:
+        with self._lock:
+            with sqlite3.connect(self.cache_file) as conn:
+                cursor = conn.execute(
+                    "SELECT * FROM file_cache WHERE file_hash = ?",
+                    (file_hash,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'doc_type': result[1],
+                        'confidence': result[2],
+                        'consistency': result[3],
+                        'issues': result[4],
+                        'text_sample': result[5]
+                    }
+                return None
+
+    def cache_result(self, file_hash: str, result: Dict):
+        with self._lock:
+            with sqlite3.connect(self.cache_file) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO file_cache
+                    (file_hash, doc_type, confidence, consistency, issues, text_sample, last_modified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        file_hash,
+                        result.get('doc_type'),
+                        result.get('confidence'),
+                        result.get('consistency'),
+                        result.get('issues'),
+                        result.get('text_sample'),
+                        time.time()
+                    )
+                )
+
+    def get_llama_cache(self, text_hash: str) -> Optional[str]:
+        with self._lock:
+            with sqlite3.connect(self.cache_file) as conn:
+                cursor = conn.execute(
+                    "SELECT response FROM llama_cache WHERE text_hash = ?",
+                    (text_hash,)
+                )
+                result = cursor.fetchone()
+                return result[0] if result else None
+
+    def cache_llama_response(self, text_hash: str, response: str):
+        with self._lock:
+            with sqlite3.connect(self.cache_file) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO llama_cache
+                    (text_hash, response, timestamp)
+                    VALUES (?, ?, ?)
+                    """,
+                    (text_hash, response, time.time())
+                )
+
+class ZeroLossFileOrganizer:
+    def __init__(self, config_path: str = None, gui_mode: bool = False):
+        print("🔧 DEBUG: Initializing ZeroLossFileOrganizer...")
+
+        # Store GUI callback for progress updates
+        self.gui_callback = None
+        self.gui_mode = gui_mode
+
+        # Initialize cache
+        self.cache = EnhancedCache()
+
+        # Load configuration
+        self.config = self.load_config(config_path)
+
+        # Setup logging
+        self.setup_logging()
+
+        # Initialize components
+        self.classifier = EnhancedFileClassifier()
+        self.ai_classifier = AIEnhancedFileClassifier()
 def main():
     parser = argparse.ArgumentParser(
         description="🎮 ΤΟΥΜΠΑΝΗ - AI-Enhanced File Organizer",
