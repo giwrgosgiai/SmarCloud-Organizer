@@ -1309,6 +1309,278 @@ class ZeroLossFileOrganizer:
     def is_file_processed(self, file_path: str, file_hash: str) -> bool:
         """Check if file was already processed in previous runs"""
         if file_hash in self.processed_hashes:
+            cached_info = self.processed_hashes[file_hash]
+            # Verify file still exists and hasn't changed
+            if (os.path.exists(file_path) and
+                cached_info.get('file_path') == file_path and
+                cached_info.get('last_modified') == os.path.getmtime(file_path)):
+                self.stats['cache_hits'] += 1
+                self.stats['incremental_savings']['files_skipped'] += 1
+                return True
+        return False
+
+    def get_cached_file_analysis(self, file_hash: str) -> Dict:
+        """Retrieve cached analysis for a file"""
+        return self.processed_hashes.get(file_hash, {})
+
+    def cache_file_analysis(self, file_path: str, file_hash: str, analysis: Dict):
+        """Cache file analysis for future runs"""
+        cache_entry = analysis.copy()
+        cache_entry.update({
+            'file_path': file_path,
+            'file_hash': file_hash,
+            'last_modified': os.path.getmtime(file_path),
+            'cached_at': time.time(),
+            'cache_version': '2.0'
+        })
+        self.processed_hashes[file_hash] = cache_entry
+
+    def calculate_incremental_savings(self):
+        """Calculate time and processing saved by incremental features"""
+        files_skipped = self.stats['incremental_savings']['files_skipped']
+        if files_skipped > 0:
+            # Estimate time saved (average 0.5 seconds per file analysis)
+            estimated_time_saved = files_skipped * 0.5
+            self.stats['incremental_savings']['time_saved_seconds'] = estimated_time_saved
+            self.stats['incremental_savings']['processing_avoided'] = files_skipped
+
+            print(f"{Colors.OKCYAN}⚡ INCREMENTAL PROCESSING SAVINGS:{Colors.ENDC}")
+            print(f"   💾 Files skipped (cached): {files_skipped}")
+            print(f"   ⏰ Time saved: {estimated_time_saved:.1f} seconds")
+            print(f"   🚀 Processing avoided: {files_skipped} file analyses")
+
+    def monitor_performance(self, stage: str):
+        """Monitor performance metrics during processing"""
+        current_time = time.time()
+        elapsed = current_time - self.performance_monitor['start_time']
+
+        try:
+            import psutil
+            memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+            self.performance_monitor['memory_usage'].append({
+                'stage': stage,
+                'time': elapsed,
+                'memory_mb': memory_usage
+            })
+        except ImportError:
+            # psutil not available, skip memory monitoring
+            pass
+
+        self.stats['performance_metrics'][stage] = {
+            'timestamp': current_time,
+            'elapsed_seconds': elapsed
+        }
+
+    def _load_enhanced_config(self) -> Dict:
+        default_config = {
+            "base_path": ".",
+            "output_excel": "super_file_organization_plan.xlsx",
+            "log_file": "super_file_organizer.log",
+            "processed_hashes_file": "processed_hashes.json",
+            "game_names": ["queena", "dolphin", "adventure", "puzzle", "casino", "slot", "poker"],
+            "containers": ["Container 1", "Container 2", "Container 3"],
+            "suppliers": ["Supplier A", "Supplier B", "Supplier C"],
+            "years": ["2024", "2025"],
+            "excluded_extensions": [".DS_Store", ".thumbs.db", ".tmp", ".log"],
+            "max_file_size_mb": 500,
+            "min_file_size_bytes": 1,
+            "enable_fast_mode": True,
+            "parallel_processing": True,
+            "hash_cache_size": 15000,
+            "confidence_threshold": 0.7,
+            "enable_folder_context": True,
+            "enable_greek_support": True,
+            "safety_mode": True,
+            "require_user_confirmation": True,
+            "backup_before_execute": True,
+            "enable_ai_classification": True,
+            "enable_ocr": True,
+            "enable_semantic_matching": True
+        }
+        if os.path.exists(self.config_file):
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                loaded_config = json.load(f)
+                default_config.update(loaded_config)
+        else:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(default_config, f, indent=2, ensure_ascii=False)
+        return default_config
+
+    def _load_processed_hashes(self) -> dict:
+        hash_file = self.config.get("processed_hashes_file", "processed_hashes.json")
+        try:
+            if os.path.exists(hash_file):
+                with open(hash_file, 'r') as f:
+                    data = json.load(f)
+                    # Handle both old format (list) and new format (dict)
+                    if isinstance(data, list):
+                        return {item: {} for item in data}  # Convert old set format
+                    return data
+        except Exception as e:
+            logging.warning(f"Could not load processed hashes: {e}")
+        return {}
+
+    def setup_enhanced_logging(self):
+        log_file = self.config.get("log_file", "super_file_organizer.log")
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.INFO)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+        console_handler.setLevel(logging.WARNING)
+        self.logger = logging.getLogger('SuperFileOrganizer')
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(console_handler)
+
+    def calculate_file_hash_enhanced(self, file_path: Path) -> str:
+        try:
+            # Check if file is in iCloud and handle timeouts
+            if "iCloud" in str(file_path) or "Mobile Documents" in str(file_path):
+                # For iCloud files, use a faster hash method or skip if timeout
+                try:
+                    stat = file_path.stat()
+                    # Quick hash based on file stats for iCloud files
+                    quick_hash = f"ICLOUD_{stat.st_size}_{int(stat.st_mtime)}_{hash(str(file_path))}"
+                    return quick_hash[:32]  # Truncate to reasonable length
+                except OSError as e:
+                    if "timed out" in str(e):
+                        print(f"⚠️ iCloud file timeout, using quick hash: {file_path.name}")
+                        return f"TIMEOUT_HASH_{int(time.time())}_{hash(str(file_path))}"[:32]
+                    raise
+
+            stat = file_path.stat()
+            cache_key = (str(file_path), stat.st_size, stat.st_mtime)
+            with self.hash_cache_lock:
+                if cache_key in self.hash_cache:
+                    self.stats['cache_hits'] += 1
+                    return self.hash_cache[cache_key]
+            file_size = stat.st_size
+            if file_size == 0:
+                return "EMPTY_FILE"
+            hash_md5 = hashlib.md5()
+            if file_size > 100 * 1024 * 1024:
+                with open(file_path, "rb") as f:
+                    hash_md5.update(f.read(131072))
+                    f.seek(file_size // 2)
+                    hash_md5.update(f.read(65536))
+                    if file_size > 262144:
+                        f.seek(-131072, 2)
+                        hash_md5.update(f.read(131072))
+            else:
+                with open(file_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(16384), b""):
+                        hash_md5.update(chunk)
+            file_hash = hash_md5.hexdigest()
+            with self.hash_cache_lock:
+                if len(self.hash_cache) < self.config.get("hash_cache_size", 15000):
+                    self.hash_cache[cache_key] = file_hash
+                elif len(self.hash_cache) >= self.config.get("hash_cache_size", 15000):
+                    oldest_key = next(iter(self.hash_cache))
+                    del self.hash_cache[oldest_key]
+                    self.hash_cache[cache_key] = file_hash
+            return file_hash
+        except OSError as e:
+            if "timed out" in str(e) or "Operation timed out" in str(e):
+                print(f"⚠️ File access timeout: {file_path.name}")
+                return f"TIMEOUT_HASH_{int(time.time())}_{hash(str(file_path))}"[:32]
+            else:
+                self.logger.error(f"OS Error calculating hash for {file_path}: {e}")
+                return f"ERROR_HASH_{int(time.time())}_{hash(str(file_path))}"
+        except Exception as e:
+            self.logger.error(f"Error calculating hash for {file_path}: {e}")
+            return f"ERROR_HASH_{int(time.time())}_{hash(str(file_path))}"
+
+    def process_file_batch_enhanced(self, file_paths: List[Path]) -> List[Dict]:
+        batch_results = []
+        game_names_tuple = tuple(self.config["game_names"])
+        for file_path in file_paths:
+            try:
+                parts = file_path.parts
+                folder_path = str(file_path.parent)
+                container = self._extract_path_component_enhanced(parts, tuple(self.config["containers"]))
+                supplier = self._extract_path_component_enhanced(parts, tuple(self.config["suppliers"]))
+                year = self._extract_path_component_enhanced(parts, tuple(self.config["years"]))
+
+                # Enhanced classification with AI integration
+                if self.config.get("enable_ai_classification", True):
+                    doc_type, is_temp, confidence, ai_results = self.enhanced_classify(
+                        file_path.name, folder_path, file_path
+                    )
+                    if ai_results.get('ai_override'):
+                        self.stats['ai_overrides'] += 1
+                    if ai_results.get('has_content_analysis'):
+                        self.stats['ai_enhancements'] += 1
+                else:
+                    doc_type, is_temp, confidence = self.pattern_classifier.classify_file(file_path.name, folder_path)
+                    ai_results = {}
+
+                file_hash = self.calculate_file_hash_enhanced(file_path)
+                if file_hash in self.processed_hashes and not is_temp:
+                    continue
+
+                # Enhanced game matching with semantic AI
+                suggested_game = None
+                game_confidence = 0.0
+                if doc_type in ['CE', 'Manual']:
+                    if self.config.get("enable_semantic_matching", True) and hasattr(self.ai_classifier, 'semantic_game_matching'):
+                        ai_game_result = self.ai_classifier.semantic_game_matching(file_path.name, self.config["game_names"])
+                        if ai_game_result[0] and ai_game_result[1] > 0.7:
+                            suggested_game, game_confidence = ai_game_result
+                        else:
+                            fallback_result = self.pattern_classifier.suggest_game_match(file_path.name, game_names_tuple)
+                            suggested_game, game_confidence = fallback_result
+                    else:
+                        game_match_result = self.pattern_classifier.suggest_game_match(file_path.name, game_names_tuple)
+                        suggested_game, game_confidence = game_match_result
+
+                stat = file_path.stat()
+                recommended_action = self._determine_enhanced_action(is_temp, doc_type, confidence, file_hash)
+
+                # Generate relative path for display
+                base_folder = "/Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας"
+                full_path = str(file_path)
+                if full_path.startswith(base_folder):
+                    relative_path = full_path[len(base_folder):].lstrip('/')
+                else:
+                    relative_path = full_path
+
+                file_info = {
+                    'Relative_Path': relative_path,
+                    'Full_Path': str(file_path),
+                    'Folder_Context': folder_path,
+                    'Container': container or 'Unknown',
+                    'Supplier': supplier or 'Unknown',
+                    'Year': year or 'Unknown',
+                    'File_Name': file_path.name,
+                    'Document_Type': doc_type,
+                    'Classification_Confidence': round(confidence, 3),
+                    'Is_Temp': is_temp,
+                    'File_Size_MB': round(stat.st_size / (1024*1024), 3),
+                    'File_Size_Bytes': stat.st_size,
+                    'Modified_Date': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'Hash': file_hash,
+                    'Suggested_Game': suggested_game or '',
+                    'Game_Match_Confidence': round(game_confidence, 3) if suggested_game else 0.0,
+                    'Recommended_Action': recommended_action,
+                    'Suggested_New_Path': '',
+                    'Notes': self._generate_enhanced_notes(doc_type, confidence, is_temp, ai_results),
+                    'Requires_User_Decision': recommended_action == 'REVIEW_NEEDED',
+                    'Safety_Status': 'TRACKED',
+                    'AI_Enhanced': ai_results.get('has_content_analysis', False),
+                    'AI_Override': ai_results.get('ai_override', False),
+                    'AI_Content_Sample': ai_results.get('content_sample', ''),
+                    'AI_Text_Length': ai_results.get('extracted_text_length', 0)
+                }
+                batch_results.append(file_info)
+                self.stats['confidence_scores'].append(confidence)
+                if recommended_action == 'REVIEW_NEEDED':
+                    self.stats['files_requiring_review'] += 1
+            except Exception as e:
                 self.logger.error(f"Error processing {file_path}: {e}")
                 error_info = {
                     'Current_Path': str(file_path),
@@ -2859,6 +3131,18 @@ class ZeroLossFileOrganizer:
         except Exception as e:
             logging.error(f"Error in enhanced file analysis: {e}")
             return self._fallback_classification("")
+
+    def initialize_caches(self):
+        """Initialize all cache files"""
+        cache_files = [
+            'file_hashes.json',
+            'processed_files.json',
+            'classification_cache.json'
+        ]
+
+        for cache_file in cache_files:
+            if not self.load_cache(cache_file):
+                logging.info(f"Initialized new cache: {cache_file}")
 
 
 def main():
