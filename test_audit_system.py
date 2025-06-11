@@ -6,6 +6,7 @@ Quick validation of comprehensive audit functionality
 
 import os
 import sys
+import tempfile
 import shutil
 from pathlib import Path
 import json

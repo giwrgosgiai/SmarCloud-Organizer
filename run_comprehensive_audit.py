@@ -36,6 +36,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from advanced_audit_system import ComprehensiveAuditEngine
     from excel_report_generator import ExcelReportGenerator
+    from icloud_backup_manager import iCloudBackupManager, create_progress_callback
     MODULES_AVAILABLE = True
 except ImportError as e:
     print(f"❌ Error importing modules: {e}")
@@ -209,6 +210,33 @@ Examples:
         help='Perform audit without generating report (for testing)'
     )
 
+    parser.add_argument(
+        '--backup',
+        action='store_true',
+        help='Create backup before audit (recommended for iCloud folders)'
+    )
+
+    parser.add_argument(
+        '--backup-location',
+        help='Custom backup location (default: ~/AuditBackups)'
+    )
+
+    parser.add_argument(
+        '--list-backups',
+        action='store_true',
+        help='List available backups and exit'
+    )
+
+    parser.add_argument(
+        '--restore-backup',
+        help='Restore backup from specified file'
+    )
+
+    parser.add_argument(
+        '--restore-to',
+        help='Directory to restore backup to (required with --restore-backup)'
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -221,6 +249,56 @@ Examples:
     if not MODULES_AVAILABLE:
         logger.error("❌ Required modules not available. Please check imports.")
         return 1
+
+    # Handle backup-only operations
+    backup_manager = iCloudBackupManager(logger)
+
+    # List backups
+    if args.list_backups:
+        backups = backup_manager.list_backups()
+        if not backups:
+            print("📂 No backups found")
+            return 0
+
+        print("\n📂 AVAILABLE BACKUPS:")
+        print("=" * 80)
+        for backup in backups:
+            print(f"📦 {backup['name']}")
+            print(f"   📁 File: {backup['file']}")
+            print(f"   📊 Size: {backup['size_mb']:.1f} MB")
+            print(f"   📅 Created: {backup['created'].strftime('%Y-%m-%d %H:%M:%S')}")
+            if backup.get('source_directory'):
+                print(f"   📂 Source: {backup['source_directory']}")
+            print()
+        return 0
+
+    # Restore backup
+    if args.restore_backup:
+        if not args.restore_to:
+            logger.error("❌ --restore-to is required when using --restore-backup")
+            return 1
+
+        backup_file = Path(args.restore_backup)
+        restore_dir = Path(args.restore_to)
+
+        print(f"🔄 Restoring backup: {backup_file}")
+        print(f"📂 Restore to: {restore_dir}")
+
+        if not get_user_confirmation("Proceed with restore?"):
+            logger.info("🛑 Restore cancelled by user")
+            return 0
+
+        progress_callback = create_progress_callback()
+        success, result = backup_manager.restore_backup(backup_file, restore_dir, progress_callback)
+
+        if success:
+            print(f"\n✅ Restore completed successfully!")
+            print(f"📂 Files restored to: {result}")
+        else:
+            print(f"\n❌ Restore failed: {result}")
+            return 1
+
+        return 0
 
     # Validate target directory
     if not validate_target_directory(args.target):
@@ -248,6 +326,46 @@ Examples:
     if args.verbose:
         config['log_level'] = 'DEBUG'
 
+    # Handle backup if requested
+    backup_file_path = None
+    if args.backup:
+        print("\n💾 BACKUP PROCESS:")
+        print("=" * 60)
+
+        # Check if target is in iCloud Drive
+        is_icloud = False
+        icloud_path = Path.home() / 'Library' / 'Mobile Documents' / 'com~apple~CloudDocs'
+        if icloud_path.exists() and str(args.target).startswith(str(icloud_path)):
+            is_icloud = True
+            print("☁️  Target directory is in iCloud Drive - backup strongly recommended!")
+
+        print(f"📂 Backing up: {args.target}")
+
+        if not get_user_confirmation("Create backup before audit?"):
+            logger.info("🛑 Backup skipped by user")
+        else:
+            print("\n🔄 Creating backup...")
+            progress_callback = create_progress_callback()
+
+            success, backup_path, backup_info = backup_manager.create_backup(
+                Path(args.target), progress_callback=progress_callback
+            )
+
+            if success:
+                backup_file_path = backup_path
+                print(f"\n✅ Backup created successfully!")
+                print(f"📁 Backup file: {backup_path}")
+                print(f"📊 Backup size: {backup_info.get('backup_size_mb', 0):.1f} MB")
+                if is_icloud and backup_info.get('downloaded', 0) > 0:
+                    print(f"☁️  Downloaded {backup_info['downloaded']} iCloud files")
+            else:
+                print(f"\n❌ Backup failed: {backup_path}")
+                if not get_user_confirmation("Continue without backup?"):
+                    logger.info("🛑 Audit cancelled due to backup failure")
+                    return 1
+
+        print("=" * 60)
+
     # Print configuration summary
     print("\n📋 AUDIT CONFIGURATION:")
     print(f"   Target Directory: {args.target}")
@@ -256,6 +374,8 @@ Examples:
     print(f"   OCR Enabled: {'✅' if config['enable_ocr'] else '❌'}")
     print(f"   Zero-Change Mode: {'✅' if config['zero_change_mode'] else '❌'}")
     print(f"   Similarity Threshold: {config['similarity_threshold']}")
+    if backup_file_path:
+        print(f"   💾 Backup Created: {backup_file_path}")
 
     # Get user confirmation
     if not get_user_confirmation("\n🔍 Proceed with comprehensive audit?"):
