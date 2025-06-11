@@ -978,142 +978,25 @@ class ZeroLossFileOrganizer:
         """Initialize the enhanced file organizer with premium features"""
         print("🔧 DEBUG: Initializing ZeroLossFileOrganizer...")
 
-        # Store GUI callback for progress updates
-        self.gui_callback = None
-        self.gui_mode = gui_mode
+        # Initialize caches first
+        self.initialize_caches()
 
-        # Configuration file for persistent settings (set this FIRST)
-        self.config_file = config_path or "file_organizer_config.json"
+        # Load configuration
+        self.config = self.load_config(config_path)
 
-        # Load enhanced configuration (now config_file is available)
-        self.config = self._load_enhanced_config()
-
-        # Enhanced cache directory
-        self.cache_dir = "file_organizer_cache"
-        os.makedirs(self.cache_dir, exist_ok=True)
-
-        # Performance and safety tracking
-        self.stats = {
-            'files_processed': 0,
-            'cache_hits': 0,
-            'processing_time': 0,
-            'ai_enhancements': 0,
-            'ai_overrides': 0,
-            'files_requiring_review': 0,
-            'confidence_scores': [],
-            'duplicates_found': 0,
-            'manual_decisions_needed': 0,
-            'performance_metrics': {},
-            'incremental_savings': {
-                'files_skipped': 0,
-                'time_saved_seconds': 0
-            }
-        }
-
-        print("🔧 DEBUG: Loading caches...")
-        # Load enhanced caches
-        self.file_hashes = self.load_cache("file_hashes.json")
-        self.processed_files = self.load_cache("processed_files.json")
-        self.classification_cache = self.load_cache("classification_cache.json")
-        self.hash_cache = {}
-        self.hash_cache_lock = threading.Lock()
-
-        # Load processed hashes for incremental processing
-        self.processed_hashes = self._load_processed_hashes()
-
-        print("🔧 DEBUG: Setting up configurations...")
-        # Processing configuration
-        self.enable_parallel_processing = self.config.get('enable_parallel_processing', True)
-        self.max_workers = min(self.config.get('max_workers', 16), os.cpu_count())
-
-        print("🔧 DEBUG: Checking AI dependencies...")
-        # AI availability checks
-        self.ai_available = False
-        self.ocr_available = False
-
-        try:
-            import pytesseract
-            from PIL import Image
-            self.ocr_available = True
-            print("✅ OCR dependencies available")
-        except ImportError:
-            print("⚠️ OCR dependencies not available")
-
-        # Initialize AI classifier - ALWAYS ENABLED for better classification!
-        print("🔧 DEBUG: Initializing AI classifier...")
-        if self.config.get('enable_ai_enhancement', True):  # 🤖 AI ΠΑΝΤΑ ΕΝΕΡΓΟ!
-            try:
-                self.ai_classifier = AIEnhancedFileClassifier()
-                self.ai_available = True
-                print("✅ AI classifier initialized successfully - SMART FOLDER MATCHING ENABLED!")
-            except Exception as e:
-                print(f"⚠️ AI classifier failed to initialize: {e}")
-                print("🔄 Attempting to continue with pattern-only classification...")
-                self.ai_classifier = None
-                self.ai_available = False
-        else:
-            print("🔧 DEBUG: AI classifier disabled by configuration (not recommended)")
-            self.ai_classifier = None
-            self.ai_available = False
-
-        print("🔧 DEBUG: Initializing pattern classifier...")
-        # Initialize pattern classifier with enhanced caches
-        self.pattern_classifier = EnhancedFileClassifier()
-
-        # Safety tracking with enhanced features
-        self.safety_tracker = {
-            'original_locations': {},
-            'files_by_status': Counter(),
-            'operations_log': [],
-            'integrity_checks': {},
-            'backup_created': False,
-            'rollback_available': True
-        }
-
-        print("🔧 DEBUG: Setting up logging...")
-        # Logging setup with performance tracking
+        # Setup logging
         self.setup_logging()
 
-        # Performance monitoring
-        self.performance_monitor = {
-            'start_time': time.time(),
-            'memory_usage': [],
-            'processing_speeds': [],
-            'cache_efficiency': []
-        }
-
-        # Rich console for beautiful output
-        self.console = Console() if RICH_AVAILABLE else None
-        self.use_rich = RICH_AVAILABLE
-
-        print("🔧 DEBUG: Integration setup...")
-        # Integrate AI with pattern classifier
-        if self.ai_available and self.ai_classifier:
-            self.enhanced_classify = integrate_ai_with_existing_classifier(
-                self.pattern_classifier, self.ai_classifier
-            )
-            print("✅ AI-enhanced classification enabled")
-        else:
-            # Fallback to pattern-only classification
-            def fallback_classify(filename, folder_path="", file_path=None):
-                doc_type, is_temp, confidence = self.pattern_classifier.classify_file(filename, folder_path)
-                return doc_type, is_temp, confidence, {}
-            self.enhanced_classify = fallback_classify
-            print("⚠️ Using pattern-only classification")
-
-        # Run automatic analysis only if not in GUI mode
-        if not gui_mode:
-            print("🔧 DEBUG: Running automatic analysis (command line mode)...")
-            # Only run if explicitly called from command line with folder argument
-            pass  # Remove automatic analysis even for command line
-        else:
-            print("🔧 DEBUG: GUI mode - skipping automatic analysis")
-
-        print("✅ DEBUG: ZeroLossFileOrganizer initialization complete!")
-
+        # Initialize other components
+        self.classifier = EnhancedFileClassifier()
+        self.ai_classifier = AIEnhancedFileClassifier()
         self.backup = SmartBackup()
         self.document_grouper = SmartDocumentGrouper()
 
+        print("✅ DEBUG: ZeroLossFileOrganizer initialization complete!")
+
+        # Store GUI callback for progress updates
+        self.gui_callback = None
     def set_gui_callback(self, callback_func):
         """Set a callback function for GUI progress updates"""
         self.gui_callback = callback_func
