@@ -48,6 +48,7 @@ import threading
 from queue import Queue
 import tempfile
 import shutil
+from datetime import datetime
 
 # Auto-install AI dependencies
 def auto_install_ai_dependencies():
@@ -1109,6 +1110,9 @@ class ZeroLossFileOrganizer:
             print("🔧 DEBUG: GUI mode - skipping automatic analysis")
 
         print("✅ DEBUG: ZeroLossFileOrganizer initialization complete!")
+
+        self.backup = SmartBackup()
+        self.document_grouper = SmartDocumentGrouper()
 
     def set_gui_callback(self, callback_func):
         """Set a callback function for GUI progress updates"""
@@ -2421,78 +2425,59 @@ class ZeroLossFileOrganizer:
             print(f"{Colors.FAIL}❌ Limited AI features. Check installation.{Colors.ENDC}")
 
     def process_files_enhanced(self, folder_path: str):
-        print("🔧 DEBUG: Starting process_files_enhanced...")
-
-        if self.use_rich:
-            self.console.print(f"\n🚀 [bold green]PREMIUM File Processing Started[/bold green]")
-            self.console.print(f"📁 Scanning: [cyan]{folder_path}[/cyan]")
-        else:
-            print(f"{Colors.HEADER}🚀 PREMIUM File Processing Started{Colors.ENDC}")
-            print(f"📁 Scanning: {folder_path}")
-
-        start_time = time.time()
-        self.monitor_performance('scan_start')
-        print("🔧 DEBUG: Performance monitoring started")
-
+        """Enhanced file processing with backup and grouping"""
         try:
-            # Discover files with progress
-            print("🔧 DEBUG: Discovering files...")
-            file_paths = self._discover_files(folder_path)
-            self.stats['files_processed'] = len(file_paths)
-            print(f"{Colors.OKGREEN}📁 Found {len(file_paths)} files to analyze{Colors.ENDC}")
-            print(f"🔧 DEBUG: File discovery complete - {len(file_paths)} files")
+            # Create backup before processing
+            backup_path = self.backup.create_backup(folder_path)
+            if backup_path:
+                logging.info(f"Created backup at: {backup_path}")
 
-            if not file_paths:
-                print(f"{Colors.WARNING}⚠️  No files found in the specified directory{Colors.ENDC}")
-                return []
+            # Process files
+            files = self._discover_files(folder_path)
+            results = self.parallel_processor.process_batch(files, self._process_single_file_enhanced)
 
-            self.monitor_performance('files_discovered')
-            print("🔧 DEBUG: Files discovered, starting processing...")
+            # Group similar documents
+            groups = self.document_grouper.group_documents(results)
 
-            # Process files with incremental optimization
-            if self.enable_parallel_processing and len(file_paths) > 10:
-                print(f"{Colors.OKCYAN}⚡ Using parallel processing with {self.max_workers} workers{Colors.ENDC}")
-                print("🔧 DEBUG: Entering parallel processing mode...")
-                results = self._process_files_parallel(file_paths, folder_path)
-                print("🔧 DEBUG: Parallel processing complete")
-            else:
-                print(f"{Colors.OKCYAN}📄 Using sequential processing{Colors.ENDC}")
-                print("🔧 DEBUG: Entering sequential processing mode...")
-                results = self._process_files_sequential(file_paths, folder_path)
-                print("🔧 DEBUG: Sequential processing complete")
+            # Generate report with groups
+            self._generate_grouped_report(results, groups)
 
-            self.monitor_performance('files_processed')
-            print("🔧 DEBUG: File processing completed, calculating savings...")
-
-            # Calculate incremental savings
-            self.calculate_incremental_savings()
-            print("🔧 DEBUG: Incremental savings calculated")
-
-            # Final processing and statistics
-            processed_files = [r for r in results if r is not None]
-            self.stats['processing_time'] = time.time() - start_time
-            print(f"🔧 DEBUG: Processed {len(processed_files)} files in {self.stats['processing_time']:.2f}s")
-
-            # Save all caches for next run
-            print("🔧 DEBUG: Saving caches...")
-            self.save_all_caches()
-
-            # Enhanced statistics reporting
-            print("🔧 DEBUG: Generating statistics report...")
-            self._report_enhanced_statistics(processed_files)
-
-            self.monitor_performance('processing_complete')
-            print("🔧 DEBUG: process_files_enhanced completed successfully")
-
-            return processed_files
+            return results
 
         except Exception as e:
-            print(f"{Colors.FAIL}❌ Error during processing: {e}{Colors.ENDC}")
-            print(f"🔧 DEBUG: Exception in process_files_enhanced: {e}")
-            self.logger.error(f"Processing failed: {e}")
-            import traceback
-            traceback.print_exc()
+            logging.error(f"Error in enhanced processing: {e}")
+            if backup_path:
+                logging.info(f"Restoring from backup: {backup_path}")
+                shutil.copy2(backup_path, folder_path)
             raise
+
+    def _generate_grouped_report(self, results: List[Dict], groups: List[List[Dict]]):
+        """Generate report with document groups"""
+        report = {
+            'total_files': len(results),
+            'groups': [],
+            'statistics': {
+                'group_count': len(groups),
+                'avg_group_size': sum(len(g) for g in groups) / len(groups) if groups else 0
+            }
+        }
+
+        for i, group in enumerate(groups):
+            group_info = {
+                'group_id': i + 1,
+                'size': len(group),
+                'doc_type': group[0]['doc_type'],
+                'confidence': sum(d['confidence'] for d in group) / len(group),
+                'files': [d['File_Name'] for d in group]
+            }
+            report['groups'].append(group_info)
+
+        # Save report
+        report_path = Path('document_groups.json')
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+
+        logging.info(f"Generated group report at: {report_path}")
 
     def _process_files_parallel(self, file_paths: List[str], folder_path: str) -> List[Dict]:
         """Process files in parallel with incremental optimization and memory management"""
