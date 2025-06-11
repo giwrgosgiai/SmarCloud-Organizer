@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Audit Results</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "Inter", sans-serif; background: #f4f6f8; color: #1e293b; }
+.container { display: flex; min-height: 100vh; }
+.sidebar { width: 280px; background: #fff; border-right: 1px solid #e2e8f0; position: fixed; height: 100vh; overflow-y: auto; }
+.sidebar-header { padding: 24px; border-bottom: 1px solid #e2e8f0; }
+.sidebar-header h2 { font-size: 1.25rem; font-weight: 600; color: #1e293b; }
+.folder-list { list-style: none; }
+.folder-list li { padding: 12px 24px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; }
+.folder-list li:hover { background: #f8fafc; color: #3b82f6; }
+.folder-list li.active { background: #f1f5f9; color: #3b82f6; border-left-color: #3b82f6; }
+.main { flex: 1; margin-left: 280px; padding: 32px; }
+.main-header { margin-bottom: 24px; }
+.main-header h2 { font-size: 1.5rem; font-weight: 600; color: #1e293b; }
+.main-header h2 span { color: #3b82f6; }
+.file-table { width: 100%; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+.file-table th, .file-table td { padding: 16px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+.file-table th { background: #f8fafc; font-weight: 600; color: #475569; }
+.file-table tr:last-child td { border-bottom: none; }
+.file-table select { width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #1e293b; font-size: 0.875rem; }
+.file-table select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+.export-btn { margin-top: 24px; padding: 12px 24px; font-size: 0.875rem; font-weight: 500; color: #fff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+.export-btn:hover { background: #2563eb; }
+.empty-state { text-align: center; padding: 48px; color: #64748b; }
+@media (max-width: 768px) {
+  .container { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: relative; }
+  .main { margin-left: 0; padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="sidebar">
+<div class="sidebar-header">
+<h2>📁 Folders</h2>
+</div>
+<ul class="folder-list" id="folderList">
+<li data-folder="." onclick="showFolder('.')" id="folder-li-0">(root)</li>
+<li data-folder=".git" onclick="showFolder('.git')" id="folder-li-1">.git</li>
+<li data-folder=".git/branches" onclick="showFolder('.git/branches')" id="folder-li-2">.git/branches</li>
+<li data-folder=".git/hooks" onclick="showFolder('.git/hooks')" id="folder-li-3">.git/hooks</li>
+<li data-folder=".git/info" onclick="showFolder('.git/info')" id="folder-li-4">.git/info</li>
+<li data-folder=".git/logs" onclick="showFolder('.git/logs')" id="folder-li-5">.git/logs</li>
+<li data-folder=".git/logs/refs" onclick="showFolder('.git/logs/refs')" id="folder-li-6">.git/logs/refs</li>
+<li data-folder=".git/logs/refs/heads" onclick="showFolder('.git/logs/refs/heads')" id="folder-li-7">.git/logs/refs/heads</li>
+<li data-folder=".git/logs/refs/remotes" onclick="showFolder('.git/logs/refs/remotes')" id="folder-li-8">.git/logs/refs/remotes</li>
+<li data-folder=".git/logs/refs/remotes/origin" onclick="showFolder('.git/logs/refs/remotes/origin')" id="folder-li-9">.git/logs/refs/remotes/origin</li>
+<li data-folder=".git/objects" onclick="showFolder('.git/objects')" id="folder-li-10">.git/objects</li>
+<li data-folder=".git/objects/00" onclick="showFolder('.git/objects/00')" id="folder-li-11">.git/objects/00</li>
+<li data-folder=".git/objects/06" onclick="showFolder('.git/objects/06')" id="folder-li-12">.git/objects/06</li>
+<li data-folder=".git/objects/08" onclick="showFolder('.git/objects/08')" id="folder-li-13">.git/objects/08</li>
+<li data-folder=".git/objects/0d" onclick="showFolder('.git/objects/0d')" id="folder-li-14">.git/objects/0d</li>
+<li data-folder=".git/objects/1a" onclick="showFolder('.git/objects/1a')" id="folder-li-15">.git/objects/1a</li>
+<li data-folder=".git/objects/1c" onclick="showFolder('.git/objects/1c')" id="folder-li-16">.git/objects/1c</li>
+<li data-folder=".git/objects/1d" onclick="showFolder('.git/objects/1d')" id="folder-li-17">.git/objects/1d</li>
+<li data-folder=".git/objects/23" onclick="showFolder('.git/objects/23')" id="folder-li-18">.git/objects/23</li>
+<li data-folder=".git/objects/2b" onclick="showFolder('.git/objects/2b')" id="folder-li-19">.git/objects/2b</li>
+<li data-folder=".git/objects/30" onclick="showFolder('.git/objects/30')" id="folder-li-20">.git/objects/30</li>
+<li data-folder=".git/objects/3d" onclick="showFolder('.git/objects/3d')" id="folder-li-21">.git/objects/3d</li>
+<li data-folder=".git/objects/3e" onclick="showFolder('.git/objects/3e')" id="folder-li-22">.git/objects/3e</li>
+<li data-folder=".git/objects/43" onclick="showFolder('.git/objects/43')" id="folder-li-23">.git/objects/43</li>
+<li data-folder=".git/objects/46" onclick="showFolder('.git/objects/46')" id="folder-li-24">.git/objects/46</li>
+<li data-folder=".git/objects/47" onclick="showFolder('.git/objects/47')" id="folder-li-25">.git/objects/47</li>
+<li data-folder=".git/objects/48" onclick="showFolder('.git/objects/48')" id="folder-li-26">.git/objects/48</li>
+<li data-folder=".git/objects/49" onclick="showFolder('.git/objects/49')" id="folder-li-27">.git/objects/49</li>
+<li data-folder=".git/objects/4a" onclick="showFolder('.git/objects/4a')" id="folder-li-28">.git/objects/4a</li>
+<li data-folder=".git/objects/4c" onclick="showFolder('.git/objects/4c')" id="folder-li-29">.git/objects/4c</li>
+<li data-folder=".git/objects/4f" onclick="showFolder('.git/objects/4f')" id="folder-li-30">.git/objects/4f</li>
+<li data-folder=".git/objects/51" onclick="showFolder('.git/objects/51')" id="folder-li-31">.git/objects/51</li>
+<li data-folder=".git/objects/5c" onclick="showFolder('.git/objects/5c')" id="folder-li-32">.git/objects/5c</li>
+<li data-folder=".git/objects/5e" onclick="showFolder('.git/objects/5e')" id="folder-li-33">.git/objects/5e</li>
+<li data-folder=".git/objects/60" onclick="showFolder('.git/objects/60')" id="folder-li-34">.git/objects/60</li>
+<li data-folder=".git/objects/62" onclick="showFolder('.git/objects/62')" id="folder-li-35">.git/objects/62</li>
+<li data-folder=".git/objects/63" onclick="showFolder('.git/objects/63')" id="folder-li-36">.git/objects/63</li>
+<li data-folder=".git/objects/68" onclick="showFolder('.git/objects/68')" id="folder-li-37">.git/objects/68</li>
+<li data-folder=".git/objects/6b" onclick="showFolder('.git/objects/6b')" id="folder-li-38">.git/objects/6b</li>
+<li data-folder=".git/objects/6e" onclick="showFolder('.git/objects/6e')" id="folder-li-39">.git/objects/6e</li>
+<li data-folder=".git/objects/70" onclick="showFolder('.git/objects/70')" id="folder-li-40">.git/objects/70</li>
+<li data-folder=".git/objects/74" onclick="showFolder('.git/objects/74')" id="folder-li-41">.git/objects/74</li>
+<li data-folder=".git/objects/76" onclick="showFolder('.git/objects/76')" id="folder-li-42">.git/objects/76</li>
+<li data-folder=".git/objects/7e" onclick="showFolder('.git/objects/7e')" id="folder-li-43">.git/objects/7e</li>
+<li data-folder=".git/objects/86" onclick="showFolder('.git/objects/86')" id="folder-li-44">.git/objects/86</li>
+<li data-folder=".git/objects/8f" onclick="showFolder('.git/objects/8f')" id="folder-li-45">.git/objects/8f</li>
+<li data-folder=".git/objects/90" onclick="showFolder('.git/objects/90')" id="folder-li-46">.git/objects/90</li>
+<li data-folder=".git/objects/91" onclick="showFolder('.git/objects/91')" id="folder-li-47">.git/objects/91</li>
+<li data-folder=".git/objects/95" onclick="showFolder('.git/objects/95')" id="folder-li-48">.git/objects/95</li>
+<li data-folder=".git/objects/9a" onclick="showFolder('.git/objects/9a')" id="folder-li-49">.git/objects/9a</li>
+<li data-folder=".git/objects/9e" onclick="showFolder('.git/objects/9e')" id="folder-li-50">.git/objects/9e</li>
+<li data-folder=".git/objects/9f" onclick="showFolder('.git/objects/9f')" id="folder-li-51">.git/objects/9f</li>
+<li data-folder=".git/objects/a1" onclick="showFolder('.git/objects/a1')" id="folder-li-52">.git/objects/a1</li>
+<li data-folder=".git/objects/a2" onclick="showFolder('.git/objects/a2')" id="folder-li-53">.git/objects/a2</li>
+<li data-folder=".git/objects/a3" onclick="showFolder('.git/objects/a3')" id="folder-li-54">.git/objects/a3</li>
+<li data-folder=".git/objects/a4" onclick="showFolder('.git/objects/a4')" id="folder-li-55">.git/objects/a4</li>
+<li data-folder=".git/objects/af" onclick="showFolder('.git/objects/af')" id="folder-li-56">.git/objects/af</li>
+<li data-folder=".git/objects/b1" onclick="showFolder('.git/objects/b1')" id="folder-li-57">.git/objects/b1</li>
+<li data-folder=".git/objects/b2" onclick="showFolder('.git/objects/b2')" id="folder-li-58">.git/objects/b2</li>
+<li data-folder=".git/objects/b5" onclick="showFolder('.git/objects/b5')" id="folder-li-59">.git/objects/b5</li>
+<li data-folder=".git/objects/b6" onclick="showFolder('.git/objects/b6')" id="folder-li-60">.git/objects/b6</li>
+<li data-folder=".git/objects/bc" onclick="showFolder('.git/objects/bc')" id="folder-li-61">.git/objects/bc</li>
+<li data-folder=".git/objects/bd" onclick="showFolder('.git/objects/bd')" id="folder-li-62">.git/objects/bd</li>
+<li data-folder=".git/objects/be" onclick="showFolder('.git/objects/be')" id="folder-li-63">.git/objects/be</li>
+<li data-folder=".git/objects/c5" onclick="showFolder('.git/objects/c5')" id="folder-li-64">.git/objects/c5</li>
+<li data-folder=".git/objects/c6" onclick="showFolder('.git/objects/c6')" id="folder-li-65">.git/objects/c6</li>
+<li data-folder=".git/objects/c8" onclick="showFolder('.git/objects/c8')" id="folder-li-66">.git/objects/c8</li>
+<li data-folder=".git/objects/cc" onclick="showFolder('.git/objects/cc')" id="folder-li-67">.git/objects/cc</li>
+<li data-folder=".git/objects/cd" onclick="showFolder('.git/objects/cd')" id="folder-li-68">.git/objects/cd</li>
+<li data-folder=".git/objects/ce" onclick="showFolder('.git/objects/ce')" id="folder-li-69">.git/objects/ce</li>
+<li data-folder=".git/objects/d2" onclick="showFolder('.git/objects/d2')" id="folder-li-70">.git/objects/d2</li>
+<li data-folder=".git/objects/d8" onclick="showFolder('.git/objects/d8')" id="folder-li-71">.git/objects/d8</li>
+<li data-folder=".git/objects/d9" onclick="showFolder('.git/objects/d9')" id="folder-li-72">.git/objects/d9</li>
+<li data-folder=".git/objects/dc" onclick="showFolder('.git/objects/dc')" id="folder-li-73">.git/objects/dc</li>
+<li data-folder=".git/objects/de" onclick="showFolder('.git/objects/de')" id="folder-li-74">.git/objects/de</li>
+<li data-folder=".git/objects/df" onclick="showFolder('.git/objects/df')" id="folder-li-75">.git/objects/df</li>
+<li data-folder=".git/objects/e0" onclick="showFolder('.git/objects/e0')" id="folder-li-76">.git/objects/e0</li>
+<li data-folder=".git/objects/e1" onclick="showFolder('.git/objects/e1')" id="folder-li-77">.git/objects/e1</li>
+<li data-folder=".git/objects/e2" onclick="showFolder('.git/objects/e2')" id="folder-li-78">.git/objects/e2</li>
+<li data-folder=".git/objects/e4" onclick="showFolder('.git/objects/e4')" id="folder-li-79">.git/objects/e4</li>
+<li data-folder=".git/objects/e5" onclick="showFolder('.git/objects/e5')" id="folder-li-80">.git/objects/e5</li>
+<li data-folder=".git/objects/e6" onclick="showFolder('.git/objects/e6')" id="folder-li-81">.git/objects/e6</li>
+<li data-folder=".git/objects/eb" onclick="showFolder('.git/objects/eb')" id="folder-li-82">.git/objects/eb</li>
+<li data-folder=".git/objects/ed" onclick="showFolder('.git/objects/ed')" id="folder-li-83">.git/objects/ed</li>
+<li data-folder=".git/objects/f2" onclick="showFolder('.git/objects/f2')" id="folder-li-84">.git/objects/f2</li>
+<li data-folder=".git/objects/f4" onclick="showFolder('.git/objects/f4')" id="folder-li-85">.git/objects/f4</li>
+<li data-folder=".git/objects/fd" onclick="showFolder('.git/objects/fd')" id="folder-li-86">.git/objects/fd</li>
+<li data-folder=".git/objects/info" onclick="showFolder('.git/objects/info')" id="folder-li-87">.git/objects/info</li>
+<li data-folder=".git/objects/pack" onclick="showFolder('.git/objects/pack')" id="folder-li-88">.git/objects/pack</li>
+<li data-folder=".git/refs" onclick="showFolder('.git/refs')" id="folder-li-89">.git/refs</li>
+<li data-folder=".git/refs/heads" onclick="showFolder('.git/refs/heads')" id="folder-li-90">.git/refs/heads</li>
+<li data-folder=".git/refs/remotes" onclick="showFolder('.git/refs/remotes')" id="folder-li-91">.git/refs/remotes</li>
+<li data-folder=".git/refs/remotes/origin" onclick="showFolder('.git/refs/remotes/origin')" id="folder-li-92">.git/refs/remotes/origin</li>
+<li data-folder=".git/refs/tags" onclick="showFolder('.git/refs/tags')" id="folder-li-93">.git/refs/tags</li>
+<li data-folder="__pycache__" onclick="showFolder('__pycache__')" id="folder-li-94">__pycache__</li>
+<li data-folder="audit_logs" onclick="showFolder('audit_logs')" id="folder-li-95">audit_logs</li>
+<li data-folder="file_organizer_cache" onclick="showFolder('file_organizer_cache')" id="folder-li-96">file_organizer_cache</li>
+</ul></div>
+<div class="main" id="mainContent">
+<div class="main-header"><h2>Επιλέξτε φάκελο από αριστερά</h2></div>
+</div></div>
+<script>
+const folderData = {};
+folderData["."] = [
+];
+folderData[".git"] = [
+];
+folderData[".git/branches"] = [
+];
+folderData[".git/hooks"] = [
+];
+folderData[".git/info"] = [
+];
+folderData[".git/logs"] = [
+];
+folderData[".git/logs/refs"] = [
+];
+folderData[".git/logs/refs/heads"] = [
+];
+folderData[".git/logs/refs/remotes"] = [
+];
+folderData[".git/logs/refs/remotes/origin"] = [
+];
+folderData[".git/objects"] = [
+];
+folderData[".git/objects/00"] = [
+];
+folderData[".git/objects/06"] = [
+];
+folderData[".git/objects/08"] = [
+];
+folderData[".git/objects/0d"] = [
+];
+folderData[".git/objects/1a"] = [
+];
+folderData[".git/objects/1c"] = [
+];
+folderData[".git/objects/1d"] = [
+];
+folderData[".git/objects/23"] = [
+];
+folderData[".git/objects/2b"] = [
+];
+folderData[".git/objects/30"] = [
+];
+folderData[".git/objects/3d"] = [
+];
+folderData[".git/objects/3e"] = [
+];
+folderData[".git/objects/43"] = [
+];
+folderData[".git/objects/46"] = [
+];
+folderData[".git/objects/47"] = [
+];
+folderData[".git/objects/48"] = [
+];
+folderData[".git/objects/49"] = [
+];
+folderData[".git/objects/4a"] = [
+];
+folderData[".git/objects/4c"] = [
+];
+folderData[".git/objects/4f"] = [
+];
+folderData[".git/objects/51"] = [
+];
+folderData[".git/objects/5c"] = [
+];
+folderData[".git/objects/5e"] = [
+];
+folderData[".git/objects/60"] = [
+];
+folderData[".git/objects/62"] = [
+];
+folderData[".git/objects/63"] = [
+];
+folderData[".git/objects/68"] = [
+];
+folderData[".git/objects/6b"] = [
+];
+folderData[".git/objects/6e"] = [
+];
+folderData[".git/objects/70"] = [
+];
+folderData[".git/objects/74"] = [
+];
+folderData[".git/objects/76"] = [
+];
+folderData[".git/objects/7e"] = [
+];
+folderData[".git/objects/86"] = [
+];
+folderData[".git/objects/8f"] = [
+];
+folderData[".git/objects/90"] = [
+];
+folderData[".git/objects/91"] = [
+];
+folderData[".git/objects/95"] = [
+];
+folderData[".git/objects/9a"] = [
+];
+folderData[".git/objects/9e"] = [
+];
+folderData[".git/objects/9f"] = [
+];
+folderData[".git/objects/a1"] = [
+];
+folderData[".git/objects/a2"] = [
+];
+folderData[".git/objects/a3"] = [
+];
+folderData[".git/objects/a4"] = [
+];
+folderData[".git/objects/af"] = [
+];
+folderData[".git/objects/b1"] = [
+];
+folderData[".git/objects/b2"] = [
+];
+folderData[".git/objects/b5"] = [
+];
+folderData[".git/objects/b6"] = [
+];
+folderData[".git/objects/bc"] = [
+];
+folderData[".git/objects/bd"] = [
+];
+folderData[".git/objects/be"] = [
+];
+folderData[".git/objects/c5"] = [
+];
+folderData[".git/objects/c6"] = [
+];
+folderData[".git/objects/c8"] = [
+];
+folderData[".git/objects/cc"] = [
+];
+folderData[".git/objects/cd"] = [
+];
+folderData[".git/objects/ce"] = [
+];
+folderData[".git/objects/d2"] = [
+];
+folderData[".git/objects/d8"] = [
+];
+folderData[".git/objects/d9"] = [
+];
+folderData[".git/objects/dc"] = [
+];
+folderData[".git/objects/de"] = [
+];
+folderData[".git/objects/df"] = [
+];
+folderData[".git/objects/e0"] = [
+];
+folderData[".git/objects/e1"] = [
+];
+folderData[".git/objects/e2"] = [
+];
+folderData[".git/objects/e4"] = [
+];
+folderData[".git/objects/e5"] = [
+];
+folderData[".git/objects/e6"] = [
+];
+folderData[".git/objects/eb"] = [
+];
+folderData[".git/objects/ed"] = [
+];
+folderData[".git/objects/f2"] = [
+];
+folderData[".git/objects/f4"] = [
+];
+folderData[".git/objects/fd"] = [
+];
+folderData[".git/objects/info"] = [
+];
+folderData[".git/objects/pack"] = [
+];
+folderData[".git/refs"] = [
+];
+folderData[".git/refs/heads"] = [
+];
+folderData[".git/refs/remotes"] = [
+];
+folderData[".git/refs/remotes/origin"] = [
+];
+folderData[".git/refs/tags"] = [
+];
+folderData["__pycache__"] = [
+];
+folderData["audit_logs"] = [
+];
+folderData["file_organizer_cache"] = [
+];
+const allFolders = [
+".",
+".git",
+".git/branches",
+".git/hooks",
+".git/info",
+".git/logs",
+".git/logs/refs",
+".git/logs/refs/heads",
+".git/logs/refs/remotes",
+".git/logs/refs/remotes/origin",
+".git/objects",
+".git/objects/00",
+".git/objects/06",
+".git/objects/08",
+".git/objects/0d",
+".git/objects/1a",
+".git/objects/1c",
+".git/objects/1d",
+".git/objects/23",
+".git/objects/2b",
+".git/objects/30",
+".git/objects/3d",
+".git/objects/3e",
+".git/objects/43",
+".git/objects/46",
+".git/objects/47",
+".git/objects/48",
+".git/objects/49",
+".git/objects/4a",
+".git/objects/4c",
+".git/objects/4f",
+".git/objects/51",
+".git/objects/5c",
+".git/objects/5e",
+".git/objects/60",
+".git/objects/62",
+".git/objects/63",
+".git/objects/68",
+".git/objects/6b",
+".git/objects/6e",
+".git/objects/70",
+".git/objects/74",
+".git/objects/76",
+".git/objects/7e",
+".git/objects/86",
+".git/objects/8f",
+".git/objects/90",
+".git/objects/91",
+".git/objects/95",
+".git/objects/9a",
+".git/objects/9e",
+".git/objects/9f",
+".git/objects/a1",
+".git/objects/a2",
+".git/objects/a3",
+".git/objects/a4",
+".git/objects/af",
+".git/objects/b1",
+".git/objects/b2",
+".git/objects/b5",
+".git/objects/b6",
+".git/objects/bc",
+".git/objects/bd",
+".git/objects/be",
+".git/objects/c5",
+".git/objects/c6",
+".git/objects/c8",
+".git/objects/cc",
+".git/objects/cd",
+".git/objects/ce",
+".git/objects/d2",
+".git/objects/d8",
+".git/objects/d9",
+".git/objects/dc",
+".git/objects/de",
+".git/objects/df",
+".git/objects/e0",
+".git/objects/e1",
+".git/objects/e2",
+".git/objects/e4",
+".git/objects/e5",
+".git/objects/e6",
+".git/objects/eb",
+".git/objects/ed",
+".git/objects/f2",
+".git/objects/f4",
+".git/objects/fd",
+".git/objects/info",
+".git/objects/pack",
+".git/refs",
+".git/refs/heads",
+".git/refs/remotes",
+".git/refs/remotes/origin",
+".git/refs/tags",
+"__pycache__",
+"audit_logs",
+"file_organizer_cache",
+];
+
+function showFolder(folder) {
+  // Highlight selected
+  document.querySelectorAll('.folder-list li').forEach(li => li.classList.remove('active'));
+  let idx = allFolders.indexOf(folder);
+  if (idx >= 0) document.getElementById('folder-li-' + idx).classList.add('active');
+  // Show files
+  let files = folderData[folder] || [];
+  let html = `<div class="main-header"><h2>Αρχεία προς χειροκίνητη ταξινόμηση: <span>${folder === '.' ? '(root)' : folder}</span></h2></div>`;
+  if (files.length === 0) {
+    html += '<div class="empty-state"><p>Δεν υπάρχουν αρχεία προς χειροκίνητη ταξινόμηση σε αυτόν τον φάκελο.</p></div>';
+  } else {
+    html += `<table class="file-table"><tr><th>Filename</th><th>Document Type</th><th>Move to Folder</th><th>Explanation</th></tr>`;
+    files.forEach((f, i) => {
+      html += `<tr><td>${f.filename}</td><td>${f.doc_type}</td><td><select id="sel_${i}">`;
+      allFolders.forEach(opt => {
+        html += `<option value="${opt}">${opt === '.' ? '(root)' : opt}</option>`;
+      });
+      html += `</select></td><td>${f.explanation}</td></tr>`;
+    });
+    html += '</table>';
+    html += `<button class="export-btn" onclick="exportChoices('${folder}')">Export Choices to CSV</button>`;
+  }
+  document.getElementById('mainContent').innerHTML = html;
+}
+function exportChoices(folder) {
+  let files = folderData[folder] || [];
+  let csv = 'Filename,Document Type,Selected Folder
+';
+  files.forEach((f, i) => {
+    let sel = document.getElementById('sel_' + i);
+    let folderVal = sel ? sel.value : '';
+    csv += '"'+f.filename+'","'+f.doc_type+'","'+folderVal+'"
+';
+  });
+  let blob = new Blob([csv], {type:'text/csv'});
+  let a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'audit_choices_' + folder.replace(/\W/g,'_') + '.csv';
+  a.click();
+}
+// Auto-select first folder
+window.onload = function() { showFolder(allFolders[0]); };
+
+</script>
+</body></html>
