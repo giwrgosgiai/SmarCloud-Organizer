@@ -1,0 +1,40 @@
+{
+    "source_directory": "",
+    "target_directory": "",
+    "container_directory": "",
+    "enable_ai": true,
+    "zero_change_mode": false,
+    "similarity_threshold": 0.8,
+    "document_types": {
+        "invoice": [
+            "invoice",
+            "inv",
+            "bill"
+        ],
+        "packing_list": [
+            "packing",
+            "packing list",
+            "pl"
+        ],
+        "bill_of_lading": [
+            "bl",
+            "bill of lading",
+            "b/l"
+        ],
+        "certificate": [
+            "certificate",
+            "cert",
+            "ce"
+        ],
+        "manual": [
+            "manual",
+            "guide",
+            "instructions"
+        ],
+        "price_list": [
+            "price",
+            "pricelist",
+            "pricing"
+        ]
+    }
+}

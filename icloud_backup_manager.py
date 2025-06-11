@@ -15,7 +15,7 @@ import zipfile
 from datetime import datetime
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any, Callable
 import logging
 import time
 import xattr
@@ -26,8 +26,13 @@ import csv
 class iCloudBackupManager:
     """Mac-optimized backup manager with iCloud Drive support"""
 
-    def __init__(self, logger=None):
-        self.logger = logger or logging.getLogger(__name__)
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.cancelled = False
+        self.progress_callback = None
+        self.download_queue = Queue()
+        self.download_threads = []
+        self.logger = logging.getLogger(__name__)
         self.backup_root = Path.home() / 'AuditBackups'
         self.backup_root.mkdir(exist_ok=True)
 
@@ -215,126 +220,150 @@ class iCloudBackupManager:
 
         return file_list, metadata_dict
 
-    def create_backup(self, backup_location, backup_name=None, progress_callback=None):
-        """Δημιουργεί backup του φακέλου σε μορφή ZIP και επιστρέφει συνοπτικά στατιστικά. Δημιουργεί και αναλυτικό report (csv/txt)."""
-        import math
+    def create_backup(self, source_dir: str, output_file: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """
+        Create a backup of the source directory, handling iCloud files.
+
+        Args:
+            source_dir: Directory to backup
+            output_file: Path to save the backup ZIP
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Dictionary with backup results
+        """
+        self.progress_callback = progress_callback
+        self.cancelled = False
+
+        results = {
+            'timestamp': datetime.now().isoformat(),
+            'source_directory': source_dir,
+            'output_file': output_file,
+            'files_backed_up': [],
+            'files_failed': [],
+            'total_size': 0,
+            'zip_size': 0
+        }
+
+        # Get all files
+        all_files = []
+        for root, _, files in os.walk(source_dir):
+            for file in files:
+                all_files.append(os.path.join(root, file))
+
+        total_files = len(all_files)
+
+        # Create temporary directory for downloaded files
+        temp_dir = os.path.join(os.path.dirname(output_file), f"temp_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        os.makedirs(temp_dir, exist_ok=True)
+
         try:
-            if not os.path.exists(backup_location):
-                raise Exception(f"Το path {backup_location} δεν υπάρχει")
+            # Start download threads
+            num_threads = min(4, total_files)  # Use up to 4 threads
+            for _ in range(num_threads):
+                thread = threading.Thread(target=self._download_worker, args=(temp_dir,))
+                thread.daemon = True
+                thread.start()
+                self.download_threads.append(thread)
 
-            if progress_callback:
-                progress_callback("Προετοιμασία backup...", 0)
+            # Process files
+            for idx, file_path in enumerate(all_files, 1):
+                if self.cancelled:
+                    break
 
-            if progress_callback:
-                progress_callback("Έλεγχος και λήψη μη τοπικών αρχείων...", 10)
-            file_list, metadata_dict = self.get_files_and_metadata(backup_location)
-            failed_downloads = self.download_missing_files(file_list, metadata_dict, progress_callback=progress_callback)
+                if self.progress_callback:
+                    self.progress_callback(idx, total_files, f"Processing {os.path.basename(file_path)}")
 
-            if failed_downloads:
-                print("Προειδοποίηση: Τα παρακάτω αρχεία δεν κατέβηκαν:")
-                for f in failed_downloads:
-                    print(f"- {f}")
+                try:
+                    # Check if file is in iCloud
+                    if self._is_icloud_file(file_path):
+                        # Add to download queue
+                        self.download_queue.put(file_path)
+                    else:
+                        # File is local, copy to temp directory
+                        rel_path = os.path.relpath(file_path, source_dir)
+                        temp_path = os.path.join(temp_dir, rel_path)
+                        os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+                        shutil.copy2(file_path, temp_path)
+                        results['files_backed_up'].append(rel_path)
+                        results['total_size'] += os.path.getsize(file_path)
 
-            if progress_callback:
-                progress_callback("Δημιουργία ZIP αρχείου...", 20)
+                except Exception as e:
+                    results['files_failed'].append({
+                        'file': file_path,
+                        'error': str(e)
+                    })
 
-            timestamp = datetime.now().strftime("%d_%m_%Y-%H%M")
-            backup_name = backup_name or f"backup_{timestamp}"
-            backup_path = os.path.join(self.backup_root, f"{backup_name}.zip")
+            # Wait for downloads to complete
+            self.download_queue.join()
 
-            # Συλλογή φακέλων
-            folder_set = set()
-            for f in file_list:
-                folder_set.add(os.path.dirname(f))
+            # Create ZIP file
+            if self.progress_callback:
+                self.progress_callback(0, 1, "Creating backup ZIP...")
 
-            # Δημιουργία ZIP
-            total_files = len(file_list)
-            total_size = sum(os.path.getsize(f) for f in file_list if os.path.exists(f))
-            with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for i, file_path in enumerate(file_list, 1):
-                    try:
-                        zipf.write(file_path, os.path.relpath(file_path, backup_location))
-                        if progress_callback:
-                            progress = 20 + int((i / total_files) * 60)  # 20-80%
-                            progress_callback(f"Συμπίεση αρχείων... ({i}/{total_files})", progress)
-                    except Exception as e:
-                        print(f"Error adding {file_path} to zip: {e}")
+            with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, _, files in os.walk(temp_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, temp_dir)
+                        zipf.write(file_path, arcname)
 
-            if progress_callback:
-                progress_callback("Προσθήκη metadata...", 90)
+            results['zip_size'] = os.path.getsize(output_file)
 
-            metadata = {
-                'timestamp': timestamp,
-                'location': backup_location,
-                'files': metadata_dict
-            }
+        finally:
+            # Clean up temporary directory
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                print(f"Error cleaning up temporary directory: {str(e)}")
 
-            with zipfile.ZipFile(backup_path, 'a') as zipf:
-                zipf.writestr('metadata.json', json.dumps(metadata, indent=2))
+        return results
 
-            if progress_callback:
-                progress_callback("Backup ολοκληρώθηκε!", 100)
+    def _is_icloud_file(self, file_path: str) -> bool:
+        """Check if a file is in iCloud"""
+        try:
+            # Check for iCloud-specific attributes
+            # This is a simplified check - you might need to adjust based on your system
+            return os.path.getxattr(file_path, 'com.apple.metadata:kMDItemIsInCloud') == b'1'
+        except:
+            return False
 
-            backup_file_size = os.path.getsize(backup_path)
-            summary = {
-                'backup_path': backup_path,
-                'num_files': total_files,
-                'num_folders': len(folder_set),
-                'total_size_mb': round(total_size / (1024 * 1024), 2),
-                'backup_zip_size_mb': round(backup_file_size / (1024 * 1024), 2),
-                'failed_downloads': failed_downloads,
-            }
+    def _download_worker(self, temp_dir: str):
+        """Worker thread for downloading iCloud files"""
+        while not self.cancelled:
+            try:
+                file_path = self.download_queue.get(timeout=1)
 
-            # --- Αναλυτικό Report ---
-            report_base = os.path.join(self.backup_root, f"{backup_name}_report")
-            txt_report = report_base + ".txt"
-            csv_report = report_base + ".csv"
+                try:
+                    # Create relative path in temp directory
+                    rel_path = os.path.relpath(file_path, self.config.get('source_directory', ''))
+                    temp_path = os.path.join(temp_dir, rel_path)
 
-            # TXT report
-            with open(txt_report, 'w', encoding='utf-8') as f:
-                f.write(f"BACKUP REPORT: {backup_name}\n")
-                f.write(f"Ημερομηνία: {timestamp}\n")
-                f.write(f"Backup path: {backup_path}\n")
-                f.write(f"Αρχεία: {total_files}\n")
-                f.write(f"Φάκελοι: {len(folder_set)}\n")
-                f.write(f"Συνολικό μέγεθος: {summary['total_size_mb']} MB\n")
-                f.write(f"Backup ZIP: {summary['backup_zip_size_mb']} MB\n")
-                f.write(f"\n--- Αρχεία που μπήκαν στο backup ---\n")
-                for p in file_list:
-                    f.write(p + '\n')
-                f.write(f"\n--- Αρχεία που ΔΕΝ μπήκαν (και γιατί) ---\n")
-                for p in failed_downloads:
-                    f.write(f"{p} [iCloud/Permission/Error]\n")
+                    # Create directory if needed
+                    os.makedirs(os.path.dirname(temp_path), exist_ok=True)
 
-            # CSV report
-            with open(csv_report, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(["Path", "Status", "Reason"])
-                for p in file_list:
-                    writer.writerow([p, "OK", ""])
-                for p in failed_downloads:
-                    writer.writerow([p, "FAILED", "iCloud/Permission/Error"])
+                    # Copy file (this will trigger download if needed)
+                    shutil.copy2(file_path, temp_path)
 
-            summary['txt_report'] = txt_report
-            summary['csv_report'] = csv_report
+                except Exception as e:
+                    print(f"Error downloading {file_path}: {str(e)}")
 
-            print("\n--- BACKUP SUMMARY ---")
-            print(f"Αρχεία: {summary['num_files']}")
-            print(f"Φάκελοι: {summary['num_folders']}")
-            print(f"Συνολικό μέγεθος: {summary['total_size_mb']} MB")
-            print(f"Backup ZIP: {summary['backup_zip_size_mb']} MB")
-            print(f"Backup path: {summary['backup_path']}")
-            print(f"TXT report: {txt_report}")
-            print(f"CSV report: {csv_report}")
-            if failed_downloads:
-                print(f"Απέτυχαν να κατέβουν: {len(failed_downloads)} αρχεία")
-            print("----------------------\n")
-            return summary
+                finally:
+                    self.download_queue.task_done()
 
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"Σφάλμα: {str(e)}", 0)
-            raise
+            except Queue.Empty:
+                break
+
+    def cancel(self):
+        """Cancel the current backup"""
+        self.cancelled = True
+        # Clear download queue
+        while not self.download_queue.empty():
+            try:
+                self.download_queue.get_nowait()
+                self.download_queue.task_done()
+            except Queue.Empty:
+                break
 
     def list_backups(self) -> List[Dict]:
         """List all available backups"""
@@ -526,15 +555,8 @@ class iCloudBackupManager:
             progress_callback("Λήψη iCloud αρχείων ολοκληρώθηκε!", 100)
         return failed
 
-def create_progress_callback():
-    """Create a simple progress callback for terminal output"""
-    def progress_callback(current: int, total: int, message: str):
-        percent = (current / total) * 100
-        bar_length = 30
-        filled = int(bar_length * percent / 100)
-        bar = '█' * filled + '░' * (bar_length - filled)
-        print(f"\r{bar} {percent:5.1f}% - {message}", end='', flush=True)
-        if current >= total:
-            print()  # New line when complete
-
-    return progress_callback
+def create_progress_callback(queue: Queue) -> Callable:
+    """Create a progress callback function that puts updates in a queue"""
+    def callback(current: int, total: int, message: str):
+        queue.put(('backup', current, total, message))
+    return callback

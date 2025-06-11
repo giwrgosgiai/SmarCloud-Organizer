@@ -13,9 +13,16 @@ import threading
 import queue
 import json
 import datetime
+import webbrowser
+import csv
+from feedback_trainer import FeedbackTrainer
+from comprehensive_audit_engine import ComprehensiveAuditEngine
+from excel_report_generator import ExcelReportGenerator
+from icloud_backup_manager import iCloudBackupManager, create_progress_callback
+from config_manager import ConfigManager
 
 try:
-    from advanced_audit_system import ComprehensiveAuditEngine
+    from comprehensive_audit_engine import ComprehensiveAuditEngine
     from excel_report_generator import ExcelReportGenerator
     from icloud_backup_manager import iCloudBackupManager, create_progress_callback
     MODULES_AVAILABLE = True
@@ -25,16 +32,24 @@ except ImportError as e:
 
 class AuditUI:
     def __init__(self, root):
+        print("[DEBUG] AuditUI.__init__ started")
         self.root = root
         self.root.title("📊 Comprehensive Audit System")
         self.root.geometry("1200x800")
 
         # Initialize components
-        self.backup_manager = iCloudBackupManager()
+        print("[DEBUG] Initializing backup manager...")
+        self.config = ConfigManager()
+        self.backup_manager = iCloudBackupManager(self.config.config)
+        print("[DEBUG] Backup manager initialized")
         self.audit_engine = None
         self.report_generator = None
+        self.progress_queue = queue.Queue()
+        self.result_comboboxes = {}  # Store comboboxes per row
+        self.result_apply_buttons = {}  # Store apply buttons per row
 
         # Create main notebook for tabs
+        print("[DEBUG] Creating notebook and tabs...")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(expand=True, fill='both', padx=10, pady=5)
 
@@ -42,15 +57,18 @@ class AuditUI:
         self.audit_tab = ttk.Frame(self.notebook)
         self.backup_tab = ttk.Frame(self.notebook)
         self.settings_tab = ttk.Frame(self.notebook)
+        self.results_tab = ttk.Frame(self.notebook)
 
         self.notebook.add(self.audit_tab, text='🔍 Audit')
         self.notebook.add(self.backup_tab, text='💾 Backup')
         self.notebook.add(self.settings_tab, text='⚙️ Settings')
+        self.notebook.add(self.results_tab, text='Results')
 
         # Setup each tab
         self.setup_audit_tab()
         self.setup_backup_tab()
         self.setup_settings_tab()
+        self.setup_results_tab()
 
         # Status bar
         self.status_var = tk.StringVar()
@@ -59,8 +77,8 @@ class AuditUI:
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
         # Progress queue for thread communication
-        self.progress_queue = queue.Queue()
         self.root.after(100, self.check_progress)
+        print("[DEBUG] AuditUI.__init__ finished")
 
     def setup_audit_tab(self):
         """Setup the audit tab"""
@@ -69,7 +87,7 @@ class AuditUI:
         dir_frame = ttk.LabelFrame(self.audit_tab, text="Target Directory")
         dir_frame.pack(fill='x', padx=5, pady=5)
 
-        self.target_var = tk.StringVar()
+        self.target_var = tk.StringVar(value="/Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας")
         ttk.Entry(dir_frame, textvariable=self.target_var, width=50).pack(side=tk.LEFT, padx=5, pady=5)
         ttk.Button(dir_frame, text="Browse", command=self.browse_target).pack(side=tk.LEFT, padx=5)
 
@@ -198,6 +216,38 @@ class AuditUI:
         # Save settings button
         ttk.Button(self.settings_tab, text="Save Settings", command=self.save_settings).pack(pady=10)
 
+    def setup_results_tab(self):
+        # Create Treeview for results
+        self.results_tree = ttk.Treeview(self.results_tab, columns=('Filename', 'Document Type', 'Suggested Action', 'Explanation'), show='headings')
+        self.results_tree.heading('Filename', text='Filename')
+        self.results_tree.heading('Document Type', text='Document Type')
+        self.results_tree.heading('Suggested Action', text='Suggested Action')
+        self.results_tree.heading('Explanation', text='Explanation')
+
+        # Configure column widths
+        self.results_tree.column('Filename', width=200)
+        self.results_tree.column('Document Type', width=150)
+        self.results_tree.column('Suggested Action', width=150)
+        self.results_tree.column('Explanation', width=400)
+
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(self.results_tab, orient="vertical", command=self.results_tree.yview)
+        self.results_tree.configure(yscrollcommand=scrollbar.set)
+
+        # Pack components
+        self.results_tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+        self.results_tree.bind('<ButtonRelease-1>', self.on_result_select)
+
+        # Add buttons frame
+        buttons_frame = ttk.Frame(self.results_tab)
+        buttons_frame.pack(side='bottom', fill='x', padx=5, pady=5)
+
+        # Add buttons
+        ttk.Button(buttons_frame, text="Apply All Suggestions", command=self.apply_all_suggestions).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="Export Results", command=self.export_results).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="Clear Results", command=self.clear_results).pack(side='left', padx=5)
+
     def browse_target(self):
         """Browse for target directory"""
         directory = filedialog.askdirectory()
@@ -276,7 +326,7 @@ class AuditUI:
         # Δημιουργία progress window
         progress_window = tk.Toplevel(self.root)
         progress_window.title("Πρόοδος Backup")
-        progress_window.geometry("420x220")
+        progress_window.geometry("420x260")
         progress_window.transient(self.root)
         progress_window.grab_set()
         progress_window.focus_force()  # Κάνει το παράθυρο πάντα ενεργό
@@ -353,10 +403,28 @@ class AuditUI:
                 f"Συνολικό μέγεθος: {summary['total_size_mb']} MB\n"
                 f"Backup ZIP: {summary['backup_zip_size_mb']} MB\n"
                 f"Backup path: {summary['backup_path']}\n"
+                f"\nΑναλυτικό Report (CSV): {summary['csv_report']}\n"
+                f"Αναλυτικό Report (TXT): {summary['txt_report']}\n"
             )
             if summary['failed_downloads']:
                 msg += f"\n⚠️ Απέτυχαν να κατέβουν: {len(summary['failed_downloads'])} αρχεία"
-            tk.messagebox.showinfo("Backup Summary", msg)
+            # Show summary and button to open report
+            def open_csv():
+                webbrowser.open(f"file://{summary['csv_report']}")
+            def open_txt():
+                webbrowser.open(f"file://{summary['txt_report']}")
+            def open_folder():
+                import subprocess
+                subprocess.run(["open", "-R", summary['backup_path']])
+            report_win = tk.Toplevel(self.root)
+            report_win.title("Backup Summary & Report")
+            report_win.geometry("600x360")
+            tk.Label(report_win, text=msg, justify=tk.LEFT, anchor=tk.W, font=("Arial", 11)).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            btn_frame = ttk.Frame(report_win)
+            btn_frame.pack(pady=5)
+            ttk.Button(btn_frame, text="Άνοιγμα CSV Report", command=open_csv).pack(side=tk.LEFT, padx=10)
+            ttk.Button(btn_frame, text="Άνοιγμα TXT Report", command=open_txt).pack(side=tk.LEFT, padx=10)
+            ttk.Button(btn_frame, text="Εμφάνιση Backup στο Finder", command=open_folder).pack(side=tk.LEFT, padx=10)
             self.refresh_backup_list()
         except Exception as e:
             progress_window.attributes('-topmost', False)  # Αφαιρεί το topmost πριν κλείσει
@@ -406,51 +474,38 @@ class AuditUI:
         threading.Thread(target=restore_thread, daemon=True).start()
 
     def start_audit(self):
-        """Start audit process"""
+        """Start the audit process"""
         target_dir = self.target_var.get()
         if not target_dir:
             messagebox.showerror("Error", "Please select a target directory")
             return
 
-        output_file = self.output_var.get()
-        if not output_file:
-            messagebox.showerror("Error", "Please specify an output file")
-            return
+        output_file = os.path.join(target_dir, f"audit_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 
-        # Create config
-        config = {
-            'enable_ai': self.use_ai_var.get(),
-            'zero_change_mode': self.zero_change_var.get(),
-            'similarity_threshold': self.similarity_var.get()
-        }
-
-        # Start audit in thread
+        # Start audit in a separate thread
         def audit_thread():
             try:
-                self.audit_engine = ComprehensiveAuditEngine(config)
-
-                def progress_callback(current, total, message):
-                    self.progress_queue.put(('audit', current, total, message))
-
+                self.audit_engine = ComprehensiveAuditEngine(self.config)
                 audit_results = self.audit_engine.run_comprehensive_audit(
-                    target_dir, progress_callback=progress_callback
+                    target_dir,
+                    progress_callback=lambda cur, tot, msg: self.progress_queue.put(('audit', cur, tot, msg))
                 )
-
                 if not self.audit_engine.cancelled:
                     self.report_generator = ExcelReportGenerator()
                     report_file = self.report_generator.generate_comprehensive_report(
                         audit_results, output_file
                     )
                     self.progress_queue.put(('audit_complete', True, report_file))
+
+                    # Show results and apply suggestions automatically
+                    self.show_audit_results(audit_results)
+                    self.apply_all_suggestions()
                 else:
                     self.progress_queue.put(('audit_complete', False, "Audit cancelled"))
-
             except Exception as e:
                 self.progress_queue.put(('audit_error', str(e)))
 
-        # Start thread
-        self.progress_var.set(0)
-        self.progress_label.config(text="Starting audit...")
+        # Start the thread
         threading.Thread(target=audit_thread, daemon=True).start()
 
     def cancel_audit(self):
@@ -636,16 +691,194 @@ class AuditUI:
             progress_window.destroy()
             tk.messagebox.showerror("Σφάλμα", f"Σφάλμα κατά τη λήψη αρχείων: {str(e)}")
 
+    def log_feedback(self, filename, doc_type, action, explanation):
+        with open('feedback_log.csv', 'a', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([filename, doc_type, action, explanation])
+
+    def apply_trainer_suggestions(self, files):
+        trainer = FeedbackTrainer()
+        results = []
+        for file_info in files:
+            fname = file_info.get('filename', '')
+            doc_type = file_info.get('document_type', '')
+            action, explanation = trainer.suggest_action(fname, doc_type)
+            self.log_feedback(fname, doc_type, action, '; '.join(explanation))
+            file_info['suggested_action'] = action
+            file_info['explanation'] = '; '.join(explanation)
+            results.append(file_info)
+        return results
+
+    def show_audit_results(self, audit_results):
+        self.clear_results()
+        self.result_comboboxes = {}
+        self.result_apply_buttons = {}
+        files = audit_results.get('files_analyzed', [])
+        files_with_suggestions = self.apply_trainer_suggestions(files)
+        for idx, file_info in enumerate(files_with_suggestions):
+            row_id = self.results_tree.insert('', 'end', values=(
+                file_info.get('filename', ''),
+                file_info.get('document_type', ''),
+                file_info.get('suggested_action', ''),
+                file_info.get('explanation', '')
+            ))
+            # Prepare folder options
+            folder_options = self.get_folder_options_for_file(file_info)
+            # Place Combobox and Apply button
+            self.root.after(100, lambda row_id=row_id, options=folder_options, file_info=file_info: self.add_combobox_and_button(row_id, options, file_info))
+        self.notebook.select(self.results_tab)
+
+    def get_folder_options_for_file(self, file_info):
+        """Return all relevant folder options for a file (current, suggested, Invoice, Container, HBL, etc)"""
+        options = set()
+        current_folder = os.path.dirname(file_info.get('full_path', ''))
+        options.add(current_folder)
+        # Add suggested folder if exists
+        suggestion = file_info.get('suggested_action', '')
+        explanation = file_info.get('explanation', '')
+        if 'Move to' in explanation:
+            parts = explanation.split('Move to')
+            if len(parts) > 1:
+                folder_name = parts[1].split('folder')[0].strip()
+                parent = os.path.dirname(current_folder)
+                suggested_folder = os.path.join(parent, folder_name)
+                options.add(suggested_folder)
+        # Add Invoice folder if relevant
+        if file_info.get('document_type', '').lower() == 'invoice':
+            parent = os.path.dirname(current_folder)
+            invoice_folder = os.path.join(parent, 'Invoice')
+            options.add(invoice_folder)
+        # Add container/HBL folders if found in explanation
+        for word in explanation.split():
+            if word.startswith('Container') or word.startswith('HBL'):
+                parent = os.path.dirname(current_folder)
+                folder = os.path.join(parent, word)
+                options.add(folder)
+        return list(options)
+
+    def add_combobox_and_button(self, row_id, options, file_info):
+        bbox = self.results_tree.bbox(row_id, column=2)
+        if not bbox:
+            self.root.after(100, lambda: self.add_combobox_and_button(row_id, options, file_info))
+            return
+        x, y, width, height = bbox
+        combobox = ttk.Combobox(self.results_tree, values=options, width=30)
+        combobox.set(options[0] if options else '')
+        combobox.place(x=x, y=y, width=width, height=height)
+        self.result_comboboxes[row_id] = combobox
+        # Add Apply button
+        btn = ttk.Button(self.results_tree, text="Εφαρμογή", command=lambda rid=row_id, fi=file_info: self.apply_single_suggestion(rid, fi))
+        btn.place(x=x+width+5, y=y, width=80, height=height)
+        self.result_apply_buttons[row_id] = btn
+
+    def on_result_select(self, event):
+        # Reposition comboboxes/buttons if needed (refresh/repaint)
+        for row_id, combobox in self.result_comboboxes.items():
+            bbox = self.results_tree.bbox(row_id, column=2)
+            if bbox:
+                x, y, width, height = bbox
+                combobox.place(x=x, y=y, width=width, height=height)
+                btn = self.result_apply_buttons.get(row_id)
+                if btn:
+                    btn.place(x=x+width+5, y=y, width=80, height=height)
+        self.results_tree.update_idletasks()
+
+    def apply_single_suggestion(self, row_id, file_info):
+        combobox = self.result_comboboxes.get(row_id)
+        if not combobox:
+            return
+        target_folder = combobox.get()
+        filename = file_info.get('filename', '')
+        source_path = file_info.get('full_path', '')
+        dest_path = os.path.join(target_folder, filename)
+        try:
+            os.makedirs(target_folder, exist_ok=True)
+            if os.path.exists(dest_path):
+                base, ext = os.path.splitext(filename)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                dest_path = os.path.join(target_folder, f"{base}_{timestamp}{ext}")
+            os.rename(source_path, dest_path)
+            messagebox.showinfo("Επιτυχία", f"Το αρχείο μετακινήθηκε στο {target_folder}")
+            self.results_tree.delete(row_id)
+            if row_id in self.result_comboboxes:
+                self.result_comboboxes[row_id].destroy()
+                del self.result_comboboxes[row_id]
+            if row_id in self.result_apply_buttons:
+                self.result_apply_buttons[row_id].destroy()
+                del self.result_apply_buttons[row_id]
+        except Exception as e:
+            messagebox.showerror("Σφάλμα", f"Αποτυχία μετακίνησης: {str(e)}")
+
+    def apply_all_suggestions(self):
+        """Apply all actions based on the current selections in the comboboxes"""
+        to_remove = []
+        for row_id, combobox in self.result_comboboxes.items():
+            target_folder = combobox.get()
+            file_info = None
+            # Find file_info by row_id (from the button dict)
+            for rid, btn in self.result_apply_buttons.items():
+                if rid == row_id:
+                    file_info = btn['command'].__closure__[1].cell_contents if hasattr(btn, 'command') else None
+                    break
+            if not file_info:
+                continue
+            filename = file_info.get('filename', '')
+            source_path = file_info.get('full_path', '')
+            dest_path = os.path.join(target_folder, filename)
+            try:
+                os.makedirs(target_folder, exist_ok=True)
+                if os.path.exists(dest_path):
+                    base, ext = os.path.splitext(filename)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    dest_path = os.path.join(target_folder, f"{base}_{timestamp}{ext}")
+                os.rename(source_path, dest_path)
+                to_remove.append(row_id)
+            except Exception as e:
+                messagebox.showerror("Σφάλμα", f"Αποτυχία μετακίνησης του {filename}: {str(e)}")
+        # Remove rows and destroy widgets
+        for row_id in to_remove:
+            self.results_tree.delete(row_id)
+            if row_id in self.result_comboboxes:
+                self.result_comboboxes[row_id].destroy()
+                del self.result_comboboxes[row_id]
+            if row_id in self.result_apply_buttons:
+                self.result_apply_buttons[row_id].destroy()
+                del self.result_apply_buttons[row_id]
+        if to_remove:
+            messagebox.showinfo("Επιτυχία", "Όλα τα επιλεγμένα αρχεία μετακινήθηκαν!")
+
+    def export_results(self):
+        """Export results to CSV"""
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Export Results"
+        )
+        if filename:
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Filename', 'Document Type', 'Suggested Action', 'Explanation'])
+                for item in self.results_tree.get_children():
+                    writer.writerow(self.results_tree.item(item)['values'])
+
+    def clear_results(self):
+        """Clear all results from the treeview"""
+        self.results_tree.delete(*self.results_tree.get_children())
+
 def main():
     """Main function"""
 
+    print("[DEBUG] main() started")
     if not MODULES_AVAILABLE:
         print("❌ Required modules not available")
         return 1
 
     root = tk.Tk()
+    print("[DEBUG] Tkinter root created")
     app = AuditUI(root)
+    print("[DEBUG] AuditUI instance created")
     root.mainloop()
+    print("[DEBUG] mainloop exited")
     return 0
 
 if __name__ == '__main__':

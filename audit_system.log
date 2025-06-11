@@ -45,3 +45,37 @@
 2025-06-11 01:36:22,414 - advanced_audit_system - INFO - 📋 Phase 5: Analyzing CE coverage...
 2025-06-11 01:36:22,414 - advanced_audit_system - INFO - 📊 Phase 6: Checking document completeness...
 2025-06-11 01:36:22,414 - advanced_audit_system - INFO - ✅ Comprehensive audit completed!
+2025-06-11 03:05:23,094 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 03:05:23,112 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 03:05:23,112 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 03:05:23,112 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 03:05:23,118 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 03:05:23,118 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 03:05:23,118 - advanced_audit_system - INFO - ✅ Successfully loaded existing modules
+2025-06-11 03:09:13,042 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 03:09:13,051 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 03:09:13,051 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 03:09:13,051 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 03:09:13,057 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 03:09:13,058 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 03:09:13,058 - advanced_audit_system - INFO - ✅ Successfully loaded existing modules
+2025-06-11 03:09:13,058 - advanced_audit_system - INFO - 🔍 Starting comprehensive audit of: /Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας
+2025-06-11 03:09:13,058 - advanced_audit_system - INFO - 📂 Phase 1: Discovering and classifying files...
+2025-06-11 10:17:22,965 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 10:17:22,981 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 10:17:22,981 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 10:17:22,981 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 10:17:22,986 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 10:17:22,986 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 10:17:22,986 - advanced_audit_system - INFO - ✅ Successfully loaded existing modules
+2025-06-11 10:17:22,986 - advanced_audit_system - INFO - 🔍 Starting comprehensive audit of: /Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας/2.1 Tagada ride 
+2025-06-11 10:38:26,195 - advanced_audit_system - INFO - ✅ Comprehensive audit completed!
+2025-06-11 10:50:48,545 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 10:50:48,564 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 10:50:48,564 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 10:50:48,564 - super_file_organizer - INFO - ✅ OCR capabilities loaded (Tesseract + PyMuPDF)
+2025-06-11 10:50:48,572 - super_file_organizer - INFO - 🚀 Using Llama 3.1:8b - Best reasoning model
+2025-06-11 10:50:48,572 - super_file_organizer - INFO - 🔍 Using nomic-embed-text for semantic analysis
+2025-06-11 10:50:48,573 - advanced_audit_system - INFO - ✅ Successfully loaded existing modules
+2025-06-11 10:50:48,573 - advanced_audit_system - INFO - 🔍 Starting comprehensive audit of: /Users/georgegiailoglou/Library/Mobile Documents/com~apple~CloudDocs/AdamsGames/1. Εγγραφα εταιριας/2.2PhotoBooth 
+2025-06-11 10:51:59,271 - advanced_audit_system - INFO - ✅ Comprehensive audit completed!

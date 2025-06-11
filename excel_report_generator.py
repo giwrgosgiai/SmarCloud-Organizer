@@ -24,6 +24,7 @@ class ExcelReportGenerator:
 
     def __init__(self):
         self.setup_styles()
+        self.writer = None
 
     def setup_styles(self):
         """Setup predefined styles for Excel formatting"""
@@ -66,341 +67,206 @@ class ExcelReportGenerator:
             }
         }
 
-    def generate_comprehensive_report(self, audit_data: Dict, output_file: str):
-        """Generate comprehensive Excel report with all audit results"""
+    def generate_comprehensive_report(self, audit_results: Dict[str, Any], output_file: str) -> str:
+        """
+        Generate a comprehensive Excel report from audit results.
 
-        # Create workbook and sheets
-        wb = openpyxl.Workbook()
+        Args:
+            audit_results: Dictionary containing audit results
+            output_file: Path to save the Excel file
 
-        # Remove default sheet
-        wb.remove(wb.active)
+        Returns:
+            Path to the generated Excel file
+        """
+        self.writer = pd.ExcelWriter(output_file, engine='xlsxwriter')
 
-        # Create sheets
-        summary_sheet = wb.create_sheet('📊 Σύνοψη Audit', 0)
-        files_sheet = wb.create_sheet('📁 Ανάλυση Αρχείων', 1)
-        issues_sheet = wb.create_sheet('⚠️ Προβλήματα', 2)
-        folders_sheet = wb.create_sheet('🗂️ Άγνωστοι Φάκελοι', 3)
-        duplicates_sheet = wb.create_sheet('🔍 Διπλά Αρχεία', 4)
-        completeness_sheet = wb.create_sheet('📋 Πληρότητα', 5)
-        recommendations_sheet = wb.create_sheet('💡 Προτάσεις', 6)
+        # Create Summary sheet
+        self._create_summary_sheet(audit_results)
 
-        # Generate each sheet
-        self.create_summary_sheet(summary_sheet, audit_data)
-        self.create_files_analysis_sheet(files_sheet, audit_data)
-        self.create_issues_sheet(issues_sheet, audit_data)
-        self.create_folders_sheet(folders_sheet, audit_data)
-        self.create_duplicates_sheet(duplicates_sheet, audit_data)
-        self.create_completeness_sheet(completeness_sheet, audit_data)
-        self.create_recommendations_sheet(recommendations_sheet, audit_data)
+        # Create Files sheet
+        self._create_files_sheet(audit_results)
 
-        # Save workbook
-        wb.save(output_file)
-        print(f"✅ Comprehensive report generated: {output_file}")
+        # Create Issues sheet
+        self._create_issues_sheet(audit_results)
+
+        # Save the Excel file
+        self.writer.close()
 
         return output_file
 
-    def create_summary_sheet(self, sheet, audit_data: Dict):
-        """Create summary dashboard sheet"""
+    def _create_summary_sheet(self, audit_results: Dict[str, Any]):
+        """Create the Summary sheet"""
+        summary = audit_results['summary']
 
-        # Title
-        sheet['A1'] = '🔍 COMPREHENSIVE AUDIT SUMMARY'
-        sheet['A1'].font = Font(name='Calibri', size=18, bold=True, color='366092')
-        sheet.merge_cells('A1:H1')
+        # Handle timestamp gracefully
+        ts = audit_results.get('timestamp', 'unknown')
+        if ts and ts != 'unknown':
+            try:
+                ts_fmt = datetime.fromisoformat(ts).strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                ts_fmt = 'unknown'
+        else:
+            ts_fmt = 'unknown'
 
-        # Audit info
-        row = 3
-        sheet[f'A{row}'] = 'Audit Date:'
-        sheet[f'B{row}'] = audit_data.get('audit_timestamp', '')
-        sheet[f'A{row+1}'] = 'Total Files Analyzed:'
-        sheet[f'B{row+1}'] = len(audit_data.get('files_analyzed', []))
-        sheet[f'A{row+2}'] = 'Processing Time:'
-        sheet[f'B{row+2}'] = f"{audit_data.get('summary', {}).get('processing_time', 0):.2f} seconds"
-
-        # Key metrics
-        row = 7
-        metrics = [
-            ('📊 Total Files', len(audit_data.get('files_analyzed', []))),
-            ('⚠️ Issues Found', len(audit_data.get('consistency_issues', []))),
-            ('🔍 Duplicates', len(audit_data.get('duplicates', []))),
-            ('🗂️ Unknown Folders', len(audit_data.get('unknown_folders', []))),
-            ('🤖 AI Classifications', audit_data.get('summary', {}).get('ai_success_rate', 0)),
-            ('📋 Containers Analyzed', len(audit_data.get('completeness_analysis', {})))
-        ]
-
-        for i, (metric, value) in enumerate(metrics):
-            sheet[f'A{row+i}'] = metric
-            sheet[f'B{row+i}'] = value
-
-            # Apply styling
-            sheet[f'A{row+i}'].font = self.styles['summary']['font']
-            sheet[f'A{row+i}'].fill = self.styles['summary']['fill']
-            sheet[f'A{row+i}'].alignment = self.styles['summary']['alignment']
-            sheet[f'B{row+i}'].font = self.styles['summary']['font']
-            sheet[f'B{row+i}'].fill = self.styles['summary']['fill']
-            sheet[f'B{row+i}'].alignment = self.styles['summary']['alignment']
-
-        # Issues summary table
-        row = 15
-        sheet[f'A{row}'] = 'ISSUES BREAKDOWN'
-        sheet[f'A{row}'].font = Font(bold=True, size=14)
-
-        issues_data = [
-            ['Issue Type', 'Count', 'Severity', 'Action Required'],
-            ['Container Mismatches', len([i for i in audit_data.get('consistency_issues', []) if any('container' in issue.get('type', '') for issue in i.get('issues', []))]), 'High', 'Review & Move'],
-            ['Duplicate Files', len(audit_data.get('duplicates', [])), 'Medium', 'Delete Copies'],
-            ['Unknown Folders', len(audit_data.get('unknown_folders', [])), 'Low', 'Reorganize'],
-            ['Missing Documents', sum(len(c.get('issues', [])) for c in audit_data.get('completeness_analysis', {}).values()), 'Medium', 'Source Missing Docs']
-        ]
-
-        for i, row_data in enumerate(issues_data):
-            for j, cell_data in enumerate(row_data):
-                cell = sheet[f'{chr(65+j)}{row+i+1}']
-                cell.value = cell_data
-
-                if i == 0:  # Header row
-                    cell.font = Font(bold=True, color='FFFFFF')
-                    cell.fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-                else:
-                    cell.font = Font(name='Calibri', size=10)
-
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                cell.border = Border(
-                    left=Side(border_style='thin'),
-                    right=Side(border_style='thin'),
-                    top=Side(border_style='thin'),
-                    bottom=Side(border_style='thin')
-                )
-
-        # Auto-adjust column widths
-        for column in sheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            sheet.column_dimensions[column_letter].width = adjusted_width
-
-    def create_files_analysis_sheet(self, sheet, audit_data: Dict):
-        """Create detailed files analysis sheet with dropdowns"""
-
-        files_data = audit_data.get('files_analyzed', [])
-
-        if not files_data:
-            sheet['A1'] = 'No files analyzed'
-            return
-
-        # Create headers based on user requirements
-        headers = [
-            'Supplier', 'Year', 'Container', 'Invoice', 'PI', 'CE %', 'CE Missing List',
-            'Packing List', 'BL Found', 'Load Date', 'Arrival Date', 'Customs Cost',
-            'Orphans', 'Shared CE', 'Duplicate Files', 'Unknown Folders', 'Notes', 'Status'
-        ]
-
-        # Add headers
-        for i, header in enumerate(headers):
-            cell = sheet[f'{chr(65+i)}1']
-            cell.value = header
-            cell.font = self.styles['header']['font']
-            cell.fill = self.styles['header']['fill']
-            cell.alignment = self.styles['header']['alignment']
-            cell.border = self.styles['header']['border']
-
-        # Process files and group by container
-        containers = {}
-        for file_info in files_data:
-            container = file_info.get('container', 'Unknown')
-            if container not in containers:
-                containers[container] = {
-                    'files': [],
-                    'invoice_count': 0,
-                    'ce_count': 0,
-                    'pl_count': 0,
-                    'bl_count': 0,
-                    'total_files': 0
-                }
-
-            containers[container]['files'].append(file_info)
-            containers[container]['total_files'] += 1
-
-            doc_type = file_info.get('document_type', '').lower()
-            if 'invoice' in doc_type:
-                containers[container]['invoice_count'] += 1
-            elif 'ce' in doc_type:
-                containers[container]['ce_count'] += 1
-            elif 'pack' in doc_type:
-                containers[container]['pl_count'] += 1
-            elif 'bl' in doc_type:
-                containers[container]['bl_count'] += 1
-
-        # Add data rows
-        row = 2
-        for container_name, container_data in containers.items():
-            # Calculate CE coverage
-            total_products = container_data['invoice_count']  # Approximation
-            ce_coverage = (container_data['ce_count'] / max(total_products, 1)) * 100
-
-            # Determine completeness status
-            has_invoice = container_data['invoice_count'] > 0
-            has_ce = container_data['ce_count'] > 0
-            has_pl = container_data['pl_count'] > 0
-            has_bl = container_data['bl_count'] > 0
-
-            status = 'COMPLETE' if all([has_invoice, has_ce, has_pl]) else 'INCOMPLETE'
-
-            # Extract supplier and year from first file
-            first_file = container_data['files'][0] if container_data['files'] else {}
-            supplier = first_file.get('supplier', 'Unknown')
-            year = first_file.get('year', 'Unknown')
-
-            # Fill row data
-            row_data = [
-                supplier,                                    # Supplier
-                year,                                        # Year
-                container_name,                              # Container
-                '✅' if has_invoice else '❌',              # Invoice
-                '✅' if has_invoice else '❌',              # PI (same as invoice for now)
-                f'{ce_coverage:.1f}%',                       # CE %
-                'Missing CE analysis' if ce_coverage < 100 else 'Complete',  # CE Missing List
-                '✅' if has_pl else '❌',                   # Packing List
-                '✅' if has_bl else '❌',                   # BL Found
-                'Not extracted',                             # Load Date (would need OCR)
-                'Not extracted',                             # Arrival Date (would need OCR)
-                'Not calculated',                            # Customs Cost (would need OCR)
-                'Analysis needed',                           # Orphans
-                'Analysis needed',                           # Shared CE
-                'No duplicates' if container_name not in [d.get('container', '') for d in audit_data.get('duplicates', [])] else 'Has duplicates',  # Duplicate Files
-                'Organized' if container_name not in [f.get('folder_name', '') for f in audit_data.get('unknown_folders', [])] else 'Needs review',  # Unknown Folders
-                f'Total files: {container_data["total_files"]}',  # Notes
-                status                                       # Status
+        # Create summary data
+        summary_data = {
+            'Metric': [
+                'Total Files Analyzed',
+                'Total Issues Found',
+                'Audit Date',
+                'Target Directory'
+            ],
+            'Value': [
+                summary['total_files'],
+                summary['total_issues'],
+                ts_fmt,
+                audit_results['target_directory']
             ]
+        }
 
-            for i, value in enumerate(row_data):
-                cell = sheet[f'{chr(65+i)}{row}']
-                cell.value = value
+        # Create document types data
+        doc_types = summary['document_types']
+        for doc_type, count in doc_types.items():
+            summary_data['Metric'].append(f'Files of type: {doc_type}')
+            summary_data['Value'].append(count)
 
-                # Apply styling based on content
-                if value in ['❌', 'INCOMPLETE', 'Has duplicates']:
-                    cell.font = self.styles['issue']['font']
-                    cell.fill = self.styles['issue']['fill']
-                elif value in ['✅', 'COMPLETE', 'No duplicates']:
-                    cell.font = self.styles['success']['font']
-                    cell.fill = self.styles['success']['fill']
-                else:
-                    cell.font = self.styles['data']['font']
+        # Create issue types data
+        issue_types = summary['issue_types']
+        for issue_type, count in issue_types.items():
+            summary_data['Metric'].append(f'Issues of type: {issue_type}')
+            summary_data['Value'].append(count)
 
-                cell.alignment = self.styles['data']['alignment']
-                cell.border = self.styles['data']['border']
+        # Create DataFrame and write to Excel
+        df = pd.DataFrame(summary_data)
+        df.to_excel(self.writer, sheet_name='Summary', index=False)
 
-            row += 1
+        # Get workbook and worksheet objects
+        workbook = self.writer.book
+        worksheet = self.writer.sheets['Summary']
 
-        # Add dropdowns for Status column
-        status_dropdown = DataValidation(
-            type="list",
-            formula1='"COMPLETE,INCOMPLETE,NEEDS_REVIEW,IN_PROGRESS"',
-            allow_blank=False
-        )
-        status_dropdown.prompt = 'Select status'
-        status_dropdown.promptTitle = 'Status Selection'
+        # Add formatting
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D9E1F2',
+            'border': 1
+        })
 
-        status_col = chr(65 + len(headers) - 1)  # Last column (Status)
-        sheet.add_data_validation(status_dropdown)
-        status_dropdown.add(f'{status_col}2:{status_col}{row-1}')
+        # Apply header format
+        worksheet.conditional_format(0, 0, 0, 1, {'type': 'no_blanks', 'format': header_format})
 
-        # Add action dropdown for recommendations
-        action_dropdown = DataValidation(
-            type="list",
-            formula1='"KEEP,DELETE,REVIEW,MOVE,RENAME"',
-            allow_blank=True
-        )
-        action_dropdown.prompt = 'Select recommended action'
-        action_dropdown.promptTitle = 'Action Selection'
+        # Adjust column widths
+        worksheet.set_column('A:A', 30)
+        worksheet.set_column('B:B', 20)
 
-        # Add action column
-        action_col = chr(65 + len(headers))
-        sheet[f'{action_col}1'] = 'Recommended Action'
-        sheet[f'{action_col}1'].font = self.styles['header']['font']
-        sheet[f'{action_col}1'].fill = self.styles['header']['fill']
+    def _create_files_sheet(self, audit_results: Dict[str, Any]):
+        """Create the Files sheet"""
+        files_data = []
 
-        sheet.add_data_validation(action_dropdown)
-        action_dropdown.add(f'{action_col}2:{action_col}{row-1}')
-
-        # Auto-adjust column widths
-        for column in sheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
+        for file_info in audit_results['files_analyzed']:
+            # Handle modified_date gracefully
+            mod_date = file_info.get('modified_date', 'unknown')
+            if mod_date and mod_date != 'unknown':
                 try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 30)
-            sheet.column_dimensions[column_letter].width = adjusted_width
+                    mod_date_fmt = datetime.fromisoformat(mod_date).strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    mod_date_fmt = 'unknown'
+            else:
+                mod_date_fmt = 'unknown'
+            files_data.append({
+                'Filename': file_info['filename'],
+                'Document Type': file_info['document_type'],
+                'Size (bytes)': file_info.get('size', ''),
+                'Modified Date': mod_date_fmt,
+                'Full Path': file_info['full_path']
+            })
 
-    def create_issues_sheet(self, sheet, audit_data: Dict):
-        """Create issues tracking sheet"""
+        # Create DataFrame and write to Excel
+        df = pd.DataFrame(files_data)
+        df.to_excel(self.writer, sheet_name='Files', index=False)
 
-        consistency_issues = audit_data.get('consistency_issues', [])
+        # Get workbook and worksheet objects
+        workbook = self.writer.book
+        worksheet = self.writer.sheets['Files']
 
-        headers = ['File Path', 'Issue Type', 'Description', 'Severity', 'Recommended Action', 'Status', 'Notes']
+        # Add formatting
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D9E1F2',
+            'border': 1
+        })
 
-        # Add headers
-        for i, header in enumerate(headers):
-            cell = sheet[f'{chr(65+i)}1']
-            cell.value = header
-            cell.font = self.styles['header']['font']
-            cell.fill = self.styles['header']['fill']
-            cell.alignment = self.styles['header']['alignment']
-            cell.border = self.styles['header']['border']
+        # Apply header format
+        worksheet.conditional_format(0, 0, 0, len(df.columns)-1, {'type': 'no_blanks', 'format': header_format})
 
-        # Add issue data
-        row = 2
-        for issue in consistency_issues:
-            file_path = issue.get('file_path', '')
+        # Adjust column widths
+        worksheet.set_column('A:A', 30)  # Filename
+        worksheet.set_column('B:B', 20)  # Document Type
+        worksheet.set_column('C:C', 15)  # Size
+        worksheet.set_column('D:D', 20)  # Modified Date
+        worksheet.set_column('E:E', 50)  # Full Path
 
-            for problem in issue.get('issues', []):
-                row_data = [
-                    file_path,
-                    problem.get('type', 'Unknown'),
-                    problem.get('description', ''),
-                    problem.get('severity', 'Medium'),
-                    issue.get('recommended_action', 'REVIEW'),
-                    'OPEN',
-                    f"Confidence: {issue.get('confidence', 0):.2f}"
-                ]
+    def _create_issues_sheet(self, audit_results: Dict[str, Any]):
+        """Create the Issues sheet"""
+        issues_data = []
 
-                for i, value in enumerate(row_data):
-                    cell = sheet[f'{chr(65+i)}{row}']
-                    cell.value = value
-                    cell.font = self.styles['data']['font']
-                    cell.alignment = self.styles['data']['alignment']
-                    cell.border = self.styles['data']['border']
+        for issue in audit_results['issues_found']:
+            issues_data.append({
+                'Issue Type': issue['type'],
+                'Severity': issue['severity'],
+                'Message': issue['message'],
+                'Filename': issue['file_info']['filename'],
+                'Document Type': issue['file_info']['document_type']
+            })
 
-                row += 1
+        # Create DataFrame and write to Excel
+        df = pd.DataFrame(issues_data)
+        df.to_excel(self.writer, sheet_name='Issues', index=False)
 
-        # Add dropdowns
-        severity_dropdown = DataValidation(
-            type="list",
-            formula1='"High,Medium,Low"',
-            allow_blank=False
-        )
-        sheet.add_data_validation(severity_dropdown)
-        severity_dropdown.add(f'D2:D{row-1}')
+        # Get workbook and worksheet objects
+        workbook = self.writer.book
+        worksheet = self.writer.sheets['Issues']
 
-        status_dropdown = DataValidation(
-            type="list",
-            formula1='"OPEN,IN_PROGRESS,RESOLVED,CLOSED"',
-            allow_blank=False
-        )
-        sheet.add_data_validation(status_dropdown)
-        status_dropdown.add(f'F2:F{row-1}')
+        # Add formatting
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D9E1F2',
+            'border': 1
+        })
 
-        # Auto-adjust column widths
-        self.auto_adjust_columns(sheet)
+        # Apply header format
+        worksheet.conditional_format(0, 0, 0, len(df.columns)-1, {'type': 'no_blanks', 'format': header_format})
+
+        # Add conditional formatting for severity
+        warning_format = workbook.add_format({'bg_color': '#FFEB9C'})
+        error_format = workbook.add_format({'bg_color': '#FFC7CE'})
+        info_format = workbook.add_format({'bg_color': '#C6EFCE'})
+
+        # Apply conditional formatting
+        worksheet.conditional_format(1, 1, len(df), 1, {
+            'type': 'text',
+            'criteria': 'containing',
+            'value': 'warning',
+            'format': warning_format
+        })
+        worksheet.conditional_format(1, 1, len(df), 1, {
+            'type': 'text',
+            'criteria': 'containing',
+            'value': 'error',
+            'format': error_format
+        })
+        worksheet.conditional_format(1, 1, len(df), 1, {
+            'type': 'text',
+            'criteria': 'containing',
+            'value': 'info',
+            'format': info_format
+        })
+
+        # Adjust column widths
+        worksheet.set_column('A:A', 20)  # Issue Type
+        worksheet.set_column('B:B', 10)  # Severity
+        worksheet.set_column('C:C', 50)  # Message
+        worksheet.set_column('D:D', 30)  # Filename
+        worksheet.set_column('E:E', 20)  # Document Type
 
     def create_folders_sheet(self, sheet, audit_data: Dict):
         """Create unknown folders analysis sheet"""

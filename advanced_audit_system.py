@@ -196,33 +196,41 @@ class ComprehensiveAuditEngine:
             self.pattern_classifier = None
             self.ai_classifier = None
 
-    def run_comprehensive_audit(self, target_directory: str) -> Dict:
-        """Run complete audit on target directory"""
+    def run_comprehensive_audit(self, target_directory: str, progress_callback=None) -> Dict:
+        """Run complete audit on target directory with progress callback support"""
         self.logger.info(f"🔍 Starting comprehensive audit of: {target_directory}")
         self.metrics.reset_metrics()
 
         # Phase 1: File Discovery and Classification
-        self.logger.info("📂 Phase 1: Discovering and classifying files...")
+        if progress_callback:
+            progress_callback(5, 100, "📂 Discovering and classifying files...")
         files = self.discover_and_classify_files(target_directory)
+        if progress_callback:
+            progress_callback(20, 100, f"📂 Classified {len(files)} files.")
 
         # Phase 2: Unknown Folder Detection
-        self.logger.info("🗂️  Phase 2: Analyzing folder structure...")
+        if progress_callback:
+            progress_callback(30, 100, "🗂️  Analyzing folder structure...")
         unknown_folders = self.detect_unknown_folders(target_directory)
 
         # Phase 3: Duplicate Detection
-        self.logger.info("🔍 Phase 3: Detecting duplicate files...")
+        if progress_callback:
+            progress_callback(45, 100, "🔍 Detecting duplicate files...")
         duplicates = self.duplicate_detector.detect_duplicates(files)
 
         # Phase 4: Consistency Checking
-        self.logger.info("🎯 Phase 4: Checking folder consistency...")
+        if progress_callback:
+            progress_callback(60, 100, "🎯 Checking folder consistency...")
         consistency_results = self.check_all_consistency(files)
 
         # Phase 5: CE Analysis
-        self.logger.info("📋 Phase 5: Analyzing CE coverage...")
+        if progress_callback:
+            progress_callback(75, 100, "📋 Analyzing CE coverage...")
         ce_analysis = self.orphan_detector.analyze_ce_coverage(files)
 
         # Phase 6: Document Completeness Check
-        self.logger.info("📊 Phase 6: Checking document completeness...")
+        if progress_callback:
+            progress_callback(90, 100, "📊 Checking document completeness...")
         completeness_analysis = self.analyze_document_completeness(files)
 
         # Compile final report
@@ -236,6 +244,9 @@ class ComprehensiveAuditEngine:
             'completeness_analysis': completeness_analysis,
             'audit_timestamp': datetime.datetime.now().isoformat()
         }
+
+        if progress_callback:
+            progress_callback(100, 100, "✅ Audit completed!")
 
         self.logger.info("✅ Comprehensive audit completed!")
         return audit_report
@@ -415,322 +426,6 @@ class ComprehensiveAuditEngine:
                 })
 
         return unknown_folders
-
-    def get_folder_recommendation(self, folder_name: str, is_problematic: bool) -> str:
-        """Get recommendation for folder handling"""
-        if is_problematic:
-            if any(name in folder_name for name in ['delete', 'temp', 'backup']):
-                return 'REVIEW_DELETE'
-            elif any(name in folder_name for name in ['argyrhs', 'anna', 'frankouli']):
-                return 'MERGE_WITH_SUPPLIER'
-            else:
-                return 'RENAME_OR_MOVE'
-        else:
-            return 'REVIEW_STRUCTURE'
-
-    def check_all_consistency(self, files: List[Dict]) -> List[Dict]:
-        """Check consistency for all files"""
-        consistency_issues = []
-
-        for file_info in files:
-            result = self.consistency_checker.check_file_folder_consistency(file_info)
-
-            if result['has_issues']:
-                consistency_issues.append({
-                    'file_path': file_info['full_path'],
-                    'issues': result['issues'],
-                    'confidence': result.get('confidence', 0.0),
-                    'recommended_action': result.get('recommended_action', 'REVIEW')
-                })
-                self.metrics.consistency_issues += 1
-
-        return consistency_issues
-
-    def analyze_document_completeness(self, files: List[Dict]) -> Dict:
-        """Analyze document completeness per container"""
-        containers = defaultdict(lambda: {
-            'invoice': [], 'ce': [], 'packing_list': [],
-            'bl': [], 'manual': [], 'bank_proof': []
-        })
-
-        # Group files by container and type
-        for file_info in files:
-            container = file_info.get('container', 'Unknown')
-            doc_type = file_info.get('document_type', 'Other').lower()
-
-            if 'invoice' in doc_type or 'τιμολογ' in doc_type:
-                containers[container]['invoice'].append(file_info)
-            elif 'ce' in doc_type or 'certificate' in doc_type:
-                containers[container]['ce'].append(file_info)
-            elif 'pack' in doc_type or 'list' in doc_type:
-                containers[container]['packing_list'].append(file_info)
-            elif 'bl' in doc_type or 'lading' in doc_type:
-                containers[container]['bl'].append(file_info)
-            elif 'manual' in doc_type or 'εγχειριδ' in doc_type:
-                containers[container]['manual'].append(file_info)
-            elif 'bank' in doc_type or 'τραπεζ' in doc_type:
-                containers[container]['bank_proof'].append(file_info)
-
-        # Analyze completeness
-        completeness_report = {}
-
-        for container, docs in containers.items():
-            issues = []
-
-            # Check for missing critical documents
-            if docs['invoice'] and docs['ce'] and not docs['packing_list']:
-                issues.append("Has Invoice & CE but missing Packing List")
-
-            if docs['invoice'] and not docs['ce']:
-                issues.append("Has Invoice but missing CE certificates")
-
-            if docs['ce'] and not docs['invoice']:
-                issues.append("Has CE but missing Invoice")
-
-            if not docs['bl'] and (docs['invoice'] or docs['packing_list']):
-                issues.append("Missing shipping documents (BL/HBL)")
-
-            completeness_report[container] = {
-                'document_counts': {k: len(v) for k, v in docs.items()},
-                'total_files': sum(len(v) for v in docs.values()),
-                'issues': issues,
-                'completeness_score': self.calculate_completeness_score(docs)
-            }
-
-        return completeness_report
-
-    def calculate_completeness_score(self, docs: Dict) -> float:
-        """Calculate completeness score for a container"""
-        required_docs = ['invoice', 'ce', 'packing_list']
-        optional_docs = ['bl', 'manual', 'bank_proof']
-
-        required_score = sum(1 for doc in required_docs if docs[doc]) / len(required_docs)
-        optional_score = sum(1 for doc in optional_docs if docs[doc]) / len(optional_docs)
-
-        return (required_score * 0.8 + optional_score * 0.2) * 100
-
-    def run_comprehensive_audit(self, target_directory: str) -> Dict:
-        """Run complete audit on target directory"""
-        self.logger.info(f"🔍 Starting comprehensive audit of: {target_directory}")
-        self.metrics.reset_metrics()
-
-        # Phase 1: File Discovery and Classification
-        self.logger.info("📂 Phase 1: Discovering and classifying files...")
-        files = self.discover_and_classify_files(target_directory)
-
-        # Phase 2: Unknown Folder Detection
-        self.logger.info("🗂️  Phase 2: Analyzing folder structure...")
-        unknown_folders = self.detect_unknown_folders(target_directory)
-
-        # Phase 3: Duplicate Detection
-        self.logger.info("🔍 Phase 3: Detecting duplicate files...")
-        duplicates = self.duplicate_detector.detect_duplicates(files)
-
-        # Phase 4: Consistency Checking
-        self.logger.info("🎯 Phase 4: Checking folder consistency...")
-        consistency_results = self.check_all_consistency(files)
-
-        # Phase 5: CE Analysis
-        self.logger.info("📋 Phase 5: Analyzing CE coverage...")
-        ce_analysis = self.orphan_detector.analyze_ce_coverage(files)
-
-        # Phase 6: Document Completeness Check
-        self.logger.info("📊 Phase 6: Checking document completeness...")
-        completeness_analysis = self.analyze_document_completeness(files)
-
-        # Compile final report
-        audit_report = {
-            'summary': self.metrics.get_summary(),
-            'files_analyzed': files,
-            'unknown_folders': unknown_folders,
-            'duplicates': duplicates,
-            'consistency_issues': consistency_results,
-            'ce_analysis': ce_analysis,
-            'completeness_analysis': completeness_analysis,
-            'audit_timestamp': datetime.datetime.now().isoformat()
-        }
-
-        self.logger.info("✅ Comprehensive audit completed!")
-        return audit_report
-
-    def discover_and_classify_files(self, target_directory: str) -> List[Dict]:
-        """Discover and classify all relevant files"""
-        files = []
-        allowed_extensions = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.jpg', '.jpeg', '.png'}
-
-        for root, dirs, filenames in os.walk(target_directory):
-            # Check for unknown folders
-            folder_name = Path(root).name.lower()
-
-            for filename in filenames:
-                file_path = Path(root) / filename
-
-                # Filter by extension
-                if file_path.suffix.lower() not in allowed_extensions:
-                    continue
-
-                # Basic file info
-                file_info = {
-                    'filename': filename,
-                    'full_path': str(file_path),
-                    'container': self.extract_container_name(root),
-                    'supplier': self.extract_supplier_name(root),
-                    'year': self.extract_year(root),
-                    'size_mb': file_path.stat().st_size / (1024 * 1024),
-                    'modified_date': datetime.datetime.fromtimestamp(file_path.stat().st_mtime)
-                }
-
-                # Classify document type
-                doc_type, confidence = self.classify_document(file_path, root)
-                file_info.update({
-                    'document_type': doc_type,
-                    'classification_confidence': confidence,
-                    'is_temp_file': self.is_temp_file(filename),
-                    'bad_filename': self.has_bad_filename(filename)
-                })
-
-                files.append(file_info)
-                self.metrics.files_processed += 1
-
-        return files
-
-    def detect_unknown_folders(self, target_directory: str) -> List[Dict]:
-        """Detect folders that don't match expected patterns"""
-        unknown_folders = []
-
-        # Known patterns for business folders
-        known_patterns = [
-            r'container\s*\d+',
-            r'supplier\s*\w+',
-            r'20\d{2}',  # Years
-            r'queena|argy|anna|frankouli',  # Known suppliers
-            r'invoices?|τιμολογ',
-            r'ce|certificates?|πιστοποι',
-            r'manual|εγχειριδ|οδηγι'
-        ]
-
-        # Problematic folder names to flag
-        problematic_patterns = [
-            'argyrhs', 'anna', 'other company', 'frankouli',
-            'shared', 'tzika', 'deleted', 'temporary', 'temp',
-            'copy', 'old', 'backup', 'archive'
-        ]
-
-        for root, dirs, files in os.walk(target_directory):
-            folder_name = Path(root).name.lower()
-
-            # Skip root directory
-            if root == target_directory:
-                continue
-
-            # Check if folder matches problematic patterns
-            is_problematic = any(pattern in folder_name for pattern in problematic_patterns)
-
-            # Check if folder matches known good patterns
-            is_known = any(re.search(pattern, folder_name, re.IGNORECASE) for pattern in known_patterns)
-
-            if is_problematic or not is_known:
-                file_count = len([f for f in files if Path(f).suffix.lower() in {'.pdf', '.docx', '.xlsx', '.jpg'}])
-
-                unknown_folders.append({
-                    'folder_path': root,
-                    'folder_name': Path(root).name,
-                    'is_problematic': is_problematic,
-                    'file_count': file_count,
-                    'recommendation': self.get_folder_recommendation(folder_name, is_problematic),
-                    'suggested_actions': [
-                        'Ignore',
-                        'Merge with supplier folder',
-                        'Rename to standard format',
-                        'Move contents to proper location'
-                    ]
-                })
-
-        return unknown_folders
-
-    def classify_document(self, file_path: Path, folder_path: str) -> Tuple[str, float]:
-        """Classify document type using available classifiers"""
-        filename = file_path.name
-
-        # Try AI classification first
-        if self.ai_classifier:
-            try:
-                ai_result = self.ai_classifier.enhanced_file_analysis(file_path, folder_path)
-                if ai_result.get('document_type') and ai_result.get('confidence', 0) > 0.5:
-                    self.metrics.ai_classifications += 1
-                    return ai_result['document_type'], ai_result['confidence']
-            except Exception as e:
-                self.logger.warning(f"AI classification failed for {filename}: {e}")
-
-        # Fallback to pattern classification
-        if self.pattern_classifier:
-            try:
-                doc_type, is_confident, confidence = self.pattern_classifier.classify_file(filename, folder_path)
-                return doc_type, confidence
-            except Exception as e:
-                self.logger.warning(f"Pattern classification failed for {filename}: {e}")
-
-        # Final fallback
-        return self.basic_classify(filename), 0.3
-
-    def basic_classify(self, filename: str) -> str:
-        """Basic classification fallback"""
-        filename_lower = filename.lower()
-
-        if any(term in filename_lower for term in ['invoice', 'τιμολογ']):
-            return 'Invoice'
-        elif any(term in filename_lower for term in ['ce', 'certificate', 'πιστοποι']):
-            return 'CE'
-        elif any(term in filename_lower for term in ['manual', 'εγχειριδ', 'οδηγι']):
-            return 'Manual'
-        elif any(term in filename_lower for term in ['pack', 'list', 'λιστ']):
-            return 'Packing List'
-        elif any(term in filename_lower for term in ['bl', 'bill', 'lading']):
-            return 'Shipping Documents'
-        else:
-            return 'Other'
-
-    def extract_container_name(self, path: str) -> Optional[str]:
-        """Extract container name from path"""
-        container_match = re.search(r'container\s*(\d+)', path, re.IGNORECASE)
-        return f"Container {container_match.group(1)}" if container_match else None
-
-    def extract_supplier_name(self, path: str) -> Optional[str]:
-        """Extract supplier name from path"""
-        suppliers = ['queena', 'argy', 'anna', 'frankouli']
-        path_lower = path.lower()
-
-        for supplier in suppliers:
-            if supplier in path_lower:
-                return supplier.title()
-
-        return None
-
-    def extract_year(self, path: str) -> Optional[str]:
-        """Extract year from path"""
-        year_match = re.search(r'20\d{2}', path)
-        return year_match.group(0) if year_match else None
-
-    def is_temp_file(self, filename: str) -> bool:
-        """Check if filename indicates temporary file"""
-        temp_indicators = ['temp', 'copy', 'draft', 'check', 'test', 'backup', 'old', 'new']
-        filename_lower = filename.lower()
-        return any(indicator in filename_lower for indicator in temp_indicators)
-
-    def has_bad_filename(self, filename: str) -> bool:
-        """Check if filename is poorly named"""
-        bad_patterns = [
-            r'^container\s*\d+$',  # Just "Container 1"
-            r'^copy',              # Starts with "Copy"
-            r'^translated',        # Starts with "Translated"
-            r'^doc\d+',           # Doc1, Doc2, etc.
-            r'^version[_\s]*\d+',  # Version_2, etc.
-            r'^\d+\.0\.0e',       # Excel temp patterns
-            r'^~\$',              # Office temp files
-        ]
-
-        filename_lower = filename.lower()
-        return any(re.match(pattern, filename_lower) for pattern in bad_patterns)
 
     def get_folder_recommendation(self, folder_name: str, is_problematic: bool) -> str:
         """Get recommendation for folder handling"""
